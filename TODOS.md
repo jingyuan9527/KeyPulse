@@ -22,9 +22,11 @@
 - [x] `.gitignore` / `CONTRIBUTING.md`（含不可协商的隐私红线）
 - [x] `docs/metrics.md` / `docs/release.md` 去掉写死版本号；release 新增第 10 节 GitHub Release 规范
 - [x] `scripts/package-release.sh` 增加版本校验、zip 打包、动态 SHA256 清单
-- [ ] 🚧 确认仓库名、许可证、提交身份后：`git init` → 中文提交 → 公开仓库 → push → `v1.0.0` tag
-- [ ] 创建 GitHub Release `v1.0.0`，上传 `KeyPulse-1.0.0-win-x64.zip` 与 `SHA256SUMS.txt`
-- [ ] 重跑 `package-release.sh` 生成含 LICENSE 的最终发布包并复核校验和
+- [x] 公开仓库 `jingyuan9527/KeyPulse`（MIT、topics、`main` 分支）：4 个中文提交 + `v1.0.0` annotated tag，提交身份用 GitHub noreply 邮箱
+- [x] GitHub Release `v1.0.0 · 首个稳定版本`（latest）：上传 `KeyPulse-1.0.0-win-x64.zip` 与 `SHA256SUMS.txt`，正文含变更、校验、隐私边界与 Defender 说明
+- [x] 重跑 `package-release.sh`：10 项 SHA256 全 OK、页面回归 7 项 PASS、zip 2.20 MB、两版 exe subsystem 正确
+- [x] 提交前隐私扫描：4 组暂存区均无本机路径 / 真实邮箱 / Token；`.env.local`、`dist/`、exe、`.workbuddy/`、`.tmp/` 均已忽略
+- [x] `.gitattributes` 固定 LF，避免 Windows `core.autocrlf` 把 `.sh` 转成 CRLF 导致 Git Bash 构建失败
 
 ## 已交付的 v1 能力
 
