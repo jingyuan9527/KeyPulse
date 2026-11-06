@@ -1,0 +1,366 @@
+package main
+
+import (
+	"flag"
+	"fmt"
+	"math/rand"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
+	"unsafe"
+
+	"keypulse/internal/counter"
+	"keypulse/internal/hook"
+	"keypulse/internal/report"
+	"keypulse/internal/store"
+	"keypulse/internal/tray"
+	"keypulse/internal/version"
+)
+
+var singletonMutex uintptr
+
+const (
+	reportKeepAlive = 10 * time.Minute // 打开报告后的自动更新保活窗口
+	reportRegenGap  = 30 * time.Second // 保活期内最快重生成间隔
+	timeJumpSeconds = 60               // 墙上时间跳跃阈值，用于识别睡眠/休眠/时间调整
+)
+
+// timeJump 判断两次 tick 之间是否发生了非正常的墙上时间跳变。
+// 用墙上时间而不是 time.Since：Go 的 monotonic 时钟在系统睡眠/虚拟机
+// 暂停期间可能同样停走，只有墙上时间一定会跳。60 秒阈值远大于正常
+// ticker 抖动，又远小于一次真实睡眠。
+func timeJump(prev, now int64) bool {
+	d := now - prev
+	return d > timeJumpSeconds || d < -timeJumpSeconds
+}
+
+var (
+	reportMu        sync.Mutex
+	reportActive    atomic.Int64 // 保活截止时刻（UnixNano）
+	lastReportGen   atomic.Int64 // 上次生成时刻（UnixNano）
+	lastHealthNotif atomic.Int64 // 上次弹恢复气泡的时刻（UnixNano）
+)
+
+// appendHealthLog 只在钩子自动恢复时写一行，不含任何按键内容。
+// 报告生成时读取它，用来如实标注数据缺口。
+func appendHealthLog(dir string, r hook.Recovery) {
+	p := filepath.Join(dir, "health.log")
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s RECOVER gap=%ds total=%d reason=%s\n",
+		r.At.Format("2006-01-02 15:04:05"), r.GapSec, r.Total, r.Reason)
+}
+
+func humanGap(sec int) string {
+	switch {
+	case sec < 60:
+		return fmt.Sprintf("%d 秒", sec)
+	case sec < 3600:
+		return fmt.Sprintf("%d 分钟", sec/60)
+	default:
+		return fmt.Sprintf("%d 小时", sec/3600)
+	}
+}
+
+func defaultDir() string {
+	base := os.Getenv("LOCALAPPDATA")
+	if base == "" {
+		base, _ = os.UserConfigDir()
+	}
+	if base == "" {
+		base = "."
+	}
+	return filepath.Join(base, "KeyPulse")
+}
+
+func acquireSingleton() bool {
+	k32 := syscall.NewLazyDLL("kernel32.dll")
+	createMutex := k32.NewProc("CreateMutexW")
+	name := syscall.StringToUTF16(`Local\KeyPulseSingleton`)
+	h, _, e := createMutex.Call(0, 1, uintptr(unsafe.Pointer(&name[0])))
+	if h == 0 {
+		return false
+	}
+	if errno, ok := e.(syscall.Errno); ok && errno == 183 { // ERROR_ALREADY_EXISTS
+		return false
+	}
+	singletonMutex = h // 持有句柄，进程退出才释放
+	return true
+}
+
+// writeReport 生成一次报告快照，并发调用由 reportMu 串行化。
+func writeReport(dir string) (string, error) {
+	reportMu.Lock()
+	defer reportMu.Unlock()
+	// 页面内嵌最近 ReportMaxDays 天（默认保留策略为 90 天，实际远低于上限）；
+	// 单日 / 周报 / 总览切换全部在浏览器本地完成，不产生额外磁盘 IO。
+	days, err := store.ListDays(dir, report.ReportMaxDays)
+	if err != nil {
+		return "", err
+	}
+	if len(days) == 0 {
+		return "", fmt.Errorf("暂无统计数据")
+	}
+	p, err := report.Render(dir, days)
+	if err == nil {
+		lastReportGen.Store(time.Now().UnixNano())
+	}
+	return p, err
+}
+
+// makeReport: open=true 表示用户主动打开，会续保活窗口并弹出浏览器。
+func makeReport(dir string, open bool) {
+	p, err := writeReport(dir)
+	if err != nil {
+		fmt.Println("生成报告失败:", err)
+		return
+	}
+	if open {
+		reportActive.Store(time.Now().Add(reportKeepAlive).UnixNano())
+		tray.OpenFile(p)
+	} else {
+		fmt.Println("报告已生成:", p)
+	}
+}
+
+// backgroundReport 在保活窗口内、且距上次生成 ≥30 秒时后台重写快照。
+// 不弹浏览器、不延长保活窗口；窗口过期后彻底停止写盘，回到零额外 IO。
+func backgroundReport(dir string) {
+	if time.Now().UnixNano() > reportActive.Load() {
+		return
+	}
+	if time.Since(time.Unix(0, lastReportGen.Load())) < reportRegenGap {
+		return
+	}
+	_, _ = writeReport(dir)
+}
+
+func exportCSV(dir string) {
+	// CSV 导出不受报告上限约束，包含磁盘上的全部历史。
+	days, err := store.ListDays(dir, 0)
+	if err != nil || len(days) == 0 {
+		return
+	}
+	p := filepath.Join(dir, "export.csv")
+	f, err := os.Create(p)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write([]byte{0xEF, 0xBB, 0xBF}) // Excel 识别 UTF-8
+	if err := store.ExportCSV(f, days); err != nil {
+		return
+	}
+	tray.OpenFile(dir)
+}
+
+func weighted(r *rand.Rand, keys []uint32, w []int) uint32 {
+	total := 0
+	for _, x := range w {
+		total += x
+	}
+	n := r.Intn(total)
+	for i, x := range w {
+		n -= x
+		if n < 0 {
+			return keys[i]
+		}
+	}
+	return keys[0]
+}
+
+func weekMonday(t time.Time) time.Time {
+	wd := int(t.Weekday())
+	if wd == 0 {
+		wd = 7
+	}
+	y, m, d := t.Date()
+	return time.Date(y, m, d-wd+1, 0, 0, 0, 0, t.Location())
+}
+
+// runSelfTest 只写模拟数据并生成报告，不挂钩子、不建托盘、不监控真实输入。
+// 生成跨 5 个自然周的 35 天数据：周末量偏低、每周递增，便于验收周报与环比。
+func runSelfTest(dir string) {
+	d := filepath.Join(dir, "_selftest")
+	r := rand.New(rand.NewSource(20261106))
+	keys := []uint32{0x20, 0x41, 0x53, 0x44, 0x45, 0x49, 0x4F, 0x4E, 0x54, 0x52, 0x08, 0x0D, 0xA2, 0x10, 0xBC, 0xBE, 0x51, 0x57, 0x1B}
+	weights := []int{18, 9, 8, 7, 11, 8, 7, 7, 8, 7, 4, 5, 3, 3, 2, 2, 2, 2, 1}
+	now := time.Now()
+	thisWeek := weekMonday(now)
+
+	for i := 34; i >= 0; i-- {
+		day := now.AddDate(0, 0, -i)
+		wd := int(day.Weekday())
+		if wd == 0 {
+			wd = 7
+		}
+		weeksAgo := int(thisWeek.Sub(weekMonday(day)).Hours() / (24 * 7))
+		band := 1.0 + float64(4-weeksAgo)*0.12
+		if wd >= 6 {
+			band *= 0.45 // 周末明显少一些
+		}
+		dd := store.DayData{
+			Stamp: day.Format("20060102"),
+			Day:   uint32(day.Unix() / 86400),
+		}
+		for h := 7; h < 23; h++ {
+			n := int(float64(120+r.Intn(700)) * band)
+			for k := 0; k < n; k++ {
+				dd.Keys[weighted(r, keys, weights)]++
+			}
+			dd.Hours[h*2] = uint32(n)
+			clicks := int(float64(20+r.Intn(110)) * band)
+			dd.Mouse[0] += uint32(clicks)
+			dd.Mouse[5] += uint32(r.Intn(260))
+			dd.Hours[h*2+1] = uint32(clicks)
+			for m := 0; m < 60; m++ {
+				if r.Intn(4) > 0 {
+					idx := h*60 + m
+					dd.Minutes[idx/8] |= 1 << uint(idx%8)
+				}
+			}
+		}
+		if err := store.WriteDayFile(d, dd); err != nil {
+			fmt.Println("生成模拟数据失败:", err)
+			return
+		}
+	}
+	makeReport(d, false)
+	fmt.Println("自检完成。模拟数据目录:", d)
+	fmt.Println("用浏览器打开该目录下的 report.html 可查看单日 / 周报对比 / 总览三个视图。")
+}
+
+func main() {
+	selfTest := flag.Bool("selftest", false, "生成模拟数据并输出报告（不挂钩子、不监控输入）")
+	reportOnly := flag.Bool("report-only", false, "仅根据已有数据重新生成 HTML 报告")
+	showVersion := flag.Bool("version", false, "输出版本与构建信息")
+	dir := flag.String("dir", defaultDir(), "数据目录")
+	keep := flag.Int("keep-days", 90, "数据保留天数，0 表示不清理")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version.String())
+		return
+	}
+	if *selfTest {
+		runSelfTest(*dir)
+		return
+	}
+	if *reportOnly {
+		makeReport(*dir, false)
+		return
+	}
+
+	if !acquireSingleton() {
+		fmt.Println("KeyPulse 已在运行（单实例保护）。")
+		return
+	}
+	hook.SetBelowNormalPriority()
+
+	c := counter.New()
+	st, err := store.Open(*dir, c)
+	if err != nil {
+		fmt.Println("打开数据目录失败:", err)
+		return
+	}
+	store.Cleanup(*dir, *keep)
+
+	// 恢复通知由 hook 包丢到独立 goroutine 执行：文件 IO 与托盘气泡
+	// 绝不能占用钩子的消息循环线程，否则会反过来诱发下一次钩子超时。
+	hook.SetRecoveryHandler(func(r hook.Recovery) {
+		appendHealthLog(*dir, r)
+		now := r.At.UnixNano()
+		for {
+			last := lastHealthNotif.Load()
+			if now-last < int64(5*time.Minute) {
+				return // 5 分钟内最多提醒一次，避免锁屏场景反复打扰
+			}
+			if lastHealthNotif.CompareAndSwap(last, now) {
+				break
+			}
+		}
+		tray.Notify("KeyPulse 采集已恢复",
+			"检测到有输入未被采集到（系统卸载钩子 / 锁屏 / 高权限窗口均可能），已自动重挂；约 "+
+				humanGap(r.GapSec)+"内的输入可能未计入。")
+	})
+
+	h, err := hook.Install(c)
+	if err != nil {
+		fmt.Println(err)
+		st.Close()
+		return
+	}
+
+	if err := tray.New(tray.Config{
+		OnOpen: func() { makeReport(*dir, true) },
+		OnToggle: func() bool {
+			p := hook.TogglePaused()
+			go st.Flush(true)
+			return p
+		},
+		OnExport: func() { exportCSV(*dir) },
+		Paused:   hook.Paused,
+	}); err != nil {
+		fmt.Println("托盘初始化失败:", err)
+		h.Uninstall()
+		st.Close()
+		return
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		tk := time.NewTicker(time.Second)
+		defer tk.Stop()
+		hb := time.NewTicker(2 * time.Second) // 钩子心跳：检测静默卸载并自动重挂
+		defer hb.Stop()
+		lastWall := time.Now().Unix()
+		for {
+			select {
+			case <-tk.C:
+				nowWall := time.Now().Unix()
+				// 睡眠/休眠/VM 暂停/系统时间调整：先强制结算到当前自然日，
+				// 并立刻做一次钩子自检（唤醒是钩子最容易失效的时刻）。
+				force := timeJump(lastWall, nowWall)
+				lastWall = nowWall
+				if force {
+					h.Heartbeat()
+				}
+				changed, _ := st.Flush(force)
+				if changed {
+					backgroundReport(*dir)
+				}
+			case <-hb.C:
+				h.Heartbeat()
+			case <-stop:
+				st.Flush(true)
+				return
+			}
+		}
+	}()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt)
+	go func() {
+		<-sig
+		h.Quit()
+	}()
+
+	fmt.Println("KeyPulse 已启动。双击托盘图标查看统计，右键可暂停 / 导出 / 退出。")
+	h.Run() // 阻塞直到 WM_QUIT
+
+	close(stop)
+	wg.Wait()
+	tray.Remove()
+	h.Uninstall()
+	st.Close()
+}
