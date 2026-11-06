@@ -13,7 +13,7 @@
 | `docs/metrics.md` / `docs/versioning.md` / `docs/release.md` | 统计口径与数据格式、版本规则、本文件 |
 | `SHA256SUMS.txt` | 包内全部文件的校验和（不含自身） |
 
-发布包同时提供目录形式 `dist/KeyPulse-<版本>/` 与压缩包 `dist/KeyPulse-<版本>-win-x64.zip`，后者用于上传 GitHub Release。
+发布包同时提供目录形式 `dist/KeyPulse-<版本>/`、压缩包 `dist/KeyPulse-<版本>-win-x64.zip`，以及免解压直下的 `dist/KeyPulse-<版本>-win-x64.exe`（与包内 `keypulse.exe` 是同一份字节）。后两者连同 `SHA256SUMS.txt` 一起上传 GitHub Release。
 
 **免安装、单文件、零外部依赖**：不需要 .NET / VC++ 运行库 / WebView2 / SQLite，不写注册表启动项、不装服务、不装驱动、不注入进程。数据只写在 `%LOCALAPPDATA%\KeyPulse\`。
 
@@ -27,7 +27,7 @@
 bash build.sh                        # 输出到项目根目录
 bash build.sh dist/KeyPulse-<版本>   # 输出到指定目录
 bash scripts/check-version.sh        # 发版前版本一致性校验
-bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文档 + 校验和 + zip + 验收）
+bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文档 + 校验和 + zip + 直下 exe + 验收）
 ```
 
 版本号唯一来源是根目录 `VERSION` 文件，`build.sh` 用 `-ldflags -X` 注入 `internal/version`。报告页脚与托盘提示都显示同一份构建信息，用户反馈问题时可直接报 `--version` 输出。
@@ -42,6 +42,7 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 - [ ] 两个 exe 的 `--version` 一致，且与 `VERSION` 文件一致
 - [ ] `keypulse.exe` PE subsystem = 2（无控制台），`keypulse-cli.exe` = 3（控制台）
 - [ ] `SHA256SUMS.txt` 与实际文件一致。Git Bash 下 `sha256sum -c SHA256SUMS.txt`；PowerShell 下 `Get-FileHash keypulse.exe -Algorithm SHA256` 逐项比对
+- [ ] 直下资产 `KeyPulse-<版本>-win-x64.exe` 与包内 `keypulse.exe` 字节一致，其 SHA256 等于清单中 `keypulse.exe` 一行
 - [ ] `KeyPulse-<版本>-win-x64.zip` 能正常解压，包内文件与目录形式一致
 - [ ] 发布包内不含源码、`.tmp/`、`.workbuddy/`、`.env.local`、任何真实数据
 - [ ] README / metrics / release / CHANGELOG 四份文档的功能描述与已知限制一致
@@ -119,7 +120,7 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 | Git tag | `v<版本>`，annotated tag，例如 `v1.1.0` |
 | Release 标题 | `v<版本>`，可加一句主题 |
 | Release 正文 | 取自 `CHANGELOG.md` 对应版本 + 适用系统 + 校验方式 + 已知限制 + Defender 提示 + 「升级不清空数据」 |
-| 上传资产 | `KeyPulse-<版本>-win-x64.zip`、`SHA256SUMS.txt` |
+| 上传资产 | `KeyPulse-<版本>-win-x64.exe`、`KeyPulse-<版本>-win-x64.zip`、`SHA256SUMS.txt` |
 | latest | 只给稳定版；`-rc.N` / `-beta.N` 必须勾选 pre-release |
 
 **主版本克制**：`1.x` 长期演进，新能力走 `1.x.0`、修复走 `1.1.x`，只有破坏兼容且无法自动迁移才允许 `2.0.0`。发布前必须跑 `bash scripts/check-version.sh`，它会拒绝重复 tag 与文档里写死的旧版本号。
@@ -131,8 +132,9 @@ Release 正文示例骨架：
 （粘贴 CHANGELOG.md 对应版本内容）
 
 ## 下载与校验
-- KeyPulse-<版本>-win-x64.zip：解压即用，含两版 exe、示例报告与文档
-- SHA256SUMS.txt：Git Bash `sha256sum -c SHA256SUMS.txt`
+- KeyPulse-<版本>-win-x64.exe：免解压，双击即用（SHA256 填打包脚本输出值，与包内 keypulse.exe 同一字节）
+- KeyPulse-<版本>-win-x64.zip：解压即用，含两版 exe、示例报告与文档（SHA256 填打包脚本输出值）
+- SHA256SUMS.txt：包内全部文件的校验和，Git Bash `sha256sum -c SHA256SUMS.txt`
 
 适用 Windows 10/11 x64；构建环境 Go 1.25 / CGO_ENABLED=0。
 升级只需退出托盘后覆盖 exe，历史数据不会清空。

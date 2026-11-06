@@ -130,13 +130,13 @@
 | 3 | 把 `CHANGELOG.md` 的 `Unreleased` 归入新版本，写日期与变更分类 | 见 §9 |
 | 4 | 运行版本校验 | `bash scripts/check-version.sh` |
 | 5 | 全量测试与页面回归 | `go test -buildvcs=false -count=1 ./...` / `node scripts/check-page.js <report.html>` |
-| 6 | 生成发布包 | `bash scripts/package-release.sh` → `dist/KeyPulse-<版本>/` + zip + `SHA256SUMS.txt` |
+| 6 | 生成发布包 | `bash scripts/package-release.sh` → `dist/KeyPulse-<版本>/` + zip + 直下 exe + `SHA256SUMS.txt` |
 | 7 | 人工过一遍实机自测清单 | `docs/release.md` 第 4 节（10 条） |
 | 8 | 同步文档 | README / metrics / release / TODOS 与新版本行为一致 |
 | 9 | 提交并打 tag | 中文提交信息；`git tag -a v<版本> -m "release: 发布 v<版本>"` |
 | 10 | 推送 | `git push && git push origin v<版本>` |
 | 11 | 创建 GitHub Release | 标题 `v<版本>`，正文取自 CHANGELOG，见 §8 |
-| 12 | 上传资产 | `KeyPulse-<版本>-win-x64.zip` + `SHA256SUMS.txt` |
+| 12 | 上传资产 | `KeyPulse-<版本>-win-x64.exe` + `KeyPulse-<版本>-win-x64.zip` + `SHA256SUMS.txt` |
 | 13 | 回填台账 | `TODOS.md` 标记完成，未竟事项移入下个版本 |
 
 **回滚**：tag / Release 一旦公开不删除。若构建包有问题，发布新的 PATCH 并在 Release 说明里注明「请勿使用 vX.Y.Z」，不要覆盖旧资产。
@@ -150,10 +150,12 @@
 | Git tag | `v` + `VERSION`，annotated tag | `v1.1.0` |
 | Release 标题 | `v<版本>`，可选加一句主题 | `v1.2.0 · 原生窗口` |
 | Release 正文 | 直接取自 `CHANGELOG.md` 对应版本，附校验和、已知限制、Defender 提示 | — |
-| 压缩包 | `KeyPulse-<版本>-win-x64.zip` | `KeyPulse-1.1.0-win-x64.zip` |
+| 单文件 exe | `KeyPulse-<版本>-win-x64.exe` | `KeyPulse-1.1.0-win-x64.exe` |
+| 压缩包 | `KeyPulse-<版本>-win-x64.zip`（完整发布包） | `KeyPulse-1.1.0-win-x64.zip` |
 | 校验文件 | `SHA256SUMS.txt`（包内与上传资产各一份） | — |
 | 示例报告 | 随包附带 `example-report.html`，不单独上传 | — |
 
+- 单文件 exe 与包内 `keypulse.exe` 是同一份字节；`SHA256SUMS.txt` 已覆盖其哈希，Release 正文需写明资产名与校验行的对应关系。
 - 只有稳定版可设为 latest；预发布一律勾 pre-release。
 - 资产里**不放源码**、不放 `.tmp/`、不放 `.workbuddy/`、不放任何真实采集数据。
 - Release 正文必须写明：适用系统、构建环境、`SHA256SUMS.txt` 校验方式、数据不会因升级清空。

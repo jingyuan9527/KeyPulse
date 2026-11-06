@@ -34,9 +34,11 @@
 
 ### 直接用（推荐）
 
-1. 从 [Releases](releases/latest) 下载 `KeyPulse-<版本>-win-x64.zip`，解压到任意目录。
-2. **先跑自检**：`keypulse-cli.exe --selftest`。它只写 35 天模拟数据并生成示例报告，**不挂钩子、不建托盘、不采集任何真实输入**。
-3. 双击 `keypulse.exe`。右下角出现蓝底键帽 + 绿点图标，即开始统计；没有主窗口。
+1. 从 [Releases](releases/latest) 二选一：
+   - **只想要程序**：下载 `KeyPulse-<版本>-win-x64.exe`，双击即可运行，免解压、免安装。
+   - **想要完整发布包**：下载 `KeyPulse-<版本>-win-x64.zip`，解压到任意目录，内含 CLI 版、示例报告、全部文档与 `SHA256SUMS.txt`。
+2. **先跑自检**（完整包内提供）：`keypulse-cli.exe --selftest`。它只写 35 天模拟数据并生成示例报告，**不挂钩子、不建托盘、不采集任何真实输入**。
+3. 双击 `keypulse.exe`（或直下版 exe）。右下角出现蓝底键帽 + 绿点图标，即开始统计；没有主窗口。
 
 > ⚠️ `keypulse.exe` 一启动就挂钩子统计真实输入。只想看界面，请用 `--selftest` 或发布包里的 `example-report.html`。
 

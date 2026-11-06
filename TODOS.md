@@ -37,9 +37,26 @@
 - [x] 今日速写（数据驱动文案）、托盘图标、报告 10 分钟保活自动刷新
 - [x] P0 钩子心跳检测与自动重挂、`health.log` 数据缺口标注
 
-## v1.0.1 候选（观察登记，本轮未改代码）
+## v1.0.1 发布（2026-11-06）
 
-- [ ] `health.log` 出现 3 条 RECOVER（2026-11-06 11:51:01 / 11:52:43 / 13:00:51，gap 1~2s，reason=input_without_callback），推测集中在锁屏切换与退出托盘瞬间：系统最后输入 tick 变化而钩子已无回调，心跳按保守策略重挂并标注近似缺口。数据本身未丢失，属「宁可提示近似也不漏计数」的设计结果，不是故障；若确认主要来自退出路径，可在 `h.Quit()` 前置 stopping 标志抑制最后一轮心跳。任何改动按 `docs/versioning.md` 以 **1.0.1** 发布，不得跳版本。
+- [x] `VERSION` → 1.0.1；`CHANGELOG.md` 增 1.0.1 条目（如实写明仅交付形态变化、程序功能与 1.0.0 相同、不含 macOS）
+- [x] `scripts/package-release.sh` 同时产出免解压直下的 `KeyPulse-1.0.1-win-x64.exe`，并打印上传资产 SHA256
+- [x] `scripts/check-version.sh`、`docs/versioning.md` §7/§8、`docs/release.md`、`README.md` 同步三资产规范
+- [ ] 全量构建与校验、本地提交、推送 tag、创建 Release 并上传 exe / zip / SHA256SUMS 三个资产、匿名回读校验
+
+## 后续 PATCH 候选（本轮未改代码）
+
+- [ ] `health.log` 出现 3 条 RECOVER（2026-11-06 11:51:01 / 11:52:43 / 13:00:51，gap 1~2s，reason=input_without_callback），推测集中在锁屏切换与退出托盘瞬间：系统最后输入 tick 变化而钩子已无回调，心跳按保守策略重挂并标注近似缺口。数据本身未丢失，属「宁可提示近似也不漏计数」的设计结果，不是故障；若确认主要来自退出路径，可在 `h.Quit()` 前置 stopping 标志抑制最后一轮心跳。任何改动按 `docs/versioning.md` 以新的 PATCH 发布（1.0.1 已用于交付形态调整），不得跳版本。
+
+## macOS 移植（后续新能力，需 `1.x.0`）
+
+- [ ] 前置条件：需要 Mac 或 GitHub Actions macOS runner；签名与公证需要 Apple Developer ID
+- [ ] 平台抽象：`main.go` 的 `CreateMutexW` 单实例、`%LOCALAPPDATA%` 数据目录、`ShellExecuteW` 打开报告按 GOOS 拆文件
+- [ ] 采集层：`CGEventTap` + 输入监控权限引导，回调仍只做原子计数；Mac 侧必须 cgo（破「零 CGO」，保「零第三方依赖」）
+- [ ] 菜单栏层：`NSStatusItem` + `LSUIElement` 的 `.app` bundle、模板图标、暂停 / 导出 / 退出
+- [ ] 构建与分发：universal `.dmg`、CI、Gatekeeper 说明；README / release.md / versioning.md 双平台化
+- [ ] 实机验证：输入监控授权、菜单栏图标、休眠恢复（CI 只能验证能编译）
+- [x] 本轮决策（2026-11-06）：用户暂无 Mac / 无签名条件，**不移植、不发空壳包**；先按 1.0.1 发 Windows 直下 exe
 
 ## v2 待办
 

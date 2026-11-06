@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # 生成 KeyPulse 发布包：版本校验 → 全量测试 → 构建 → 示例报告 → 文档 →
 # 页面回归 → 校验和 → zip → 产物核对。
-# 输出 dist/KeyPulse-<版本>/ 与 dist/KeyPulse-<版本>-win-x64.zip，
+# 输出 dist/KeyPulse-<版本>/、dist/KeyPulse-<版本>-win-x64.zip 与
+# 免解压直下的 dist/KeyPulse-<版本>-win-x64.exe，
 # 不覆盖项目根目录正在运行的 exe。
 set -e
 
@@ -59,7 +60,9 @@ fs.writeFileSync(path.join(dir,"SHA256SUMS.txt"),lines.join("\n")+"\n");
 console.log("SHA256SUMS.txt: "+files.length+" 个文件");
 ' "$DIST"
 
-echo "=== 6/8 打包 zip ==="
+echo "=== 6/8 打包 zip 与直下 exe ==="
+# 直下资产与包内 keypulse.exe 是同一字节，SHA256SUMS.txt 里已有其哈希。
+cp "$DIST/keypulse.exe" "dist/KeyPulse-${VERSION}-win-x64.exe"
 (cd dist
   if command -v python >/dev/null 2>&1; then
     python -m zipfile -c "$ZIP" "KeyPulse-${VERSION}"
@@ -71,6 +74,7 @@ echo "=== 6/8 打包 zip ==="
   fi
   echo "zip: dist/$ZIP"
 )
+echo "exe: dist/KeyPulse-${VERSION}-win-x64.exe"
 
 echo "=== 7/8 产物核对 ==="
 "$DIST/keypulse-cli.exe" --version
@@ -91,4 +95,7 @@ for(const f of ["keypulse.exe","keypulse-cli.exe"]){
 echo "=== 8/8 发布产物 ==="
 find "$DIST" -type f | sort | while IFS= read -r f; do echo "$f  $(wc -c < "$f") B"; done
 echo "dist/$ZIP  $(wc -c < "dist/$ZIP") B"
+echo "dist/KeyPulse-${VERSION}-win-x64.exe  $(wc -c < "dist/KeyPulse-${VERSION}-win-x64.exe") B"
+echo "--- 上传资产 SHA256（供 Release 正文）---"
+sha256sum "dist/KeyPulse-${VERSION}-win-x64.exe" "dist/$ZIP" "$DIST/SHA256SUMS.txt"
 echo "完成: $ROOT/$DIST"

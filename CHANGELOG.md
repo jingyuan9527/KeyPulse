@@ -8,6 +8,20 @@
 
 暂无待发布变更。
 
+## [1.0.1] - 2026-11-06
+
+仅调整发布形态的小版本：新增免解压直下的单文件 exe，程序功能与 1.0.0 完全一致。
+
+### 变更
+
+- Release 新增 `KeyPulse-1.0.1-win-x64.exe` 资产，下载后双击即可运行，无需解压；压缩包继续提供（含 CLI 版、示例报告与全部文档）。
+- 发版脚本与文档同步：打包时同时产出直下 exe，Release 正文写明其 SHA256 与包内 `keypulse.exe` 的对应关系。
+
+### 说明
+
+- 未改动采集、存储、报告、托盘与隐私模型；只有版本号与构建信息随重新编译变化，`%LOCALAPPDATA%\KeyPulse\` 下的历史数据无需迁移，直接覆盖 exe 即可升级。
+- 本版不含 macOS 版本：采集与托盘目前是 Win32 实现，跨到 macOS 需要另起平台移植，按升位规则属于新能力，将在后续的 `1.x.0` 单独发布。
+
 ## [1.0.0] - 2026-11-06
 
 首个稳定版本：Windows 输入次数统计工具，只记次数、不记内容。
@@ -47,5 +61,6 @@
 - 长按连发固定过滤，暂无设置开关；无组合键白名单计数、无开机自启。
 - 界面借用系统默认浏览器展示 HTML，不是原生窗口。
 
-[Unreleased]: https://github.com/jingyuan9527/KeyPulse/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/jingyuan9527/KeyPulse/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/jingyuan9527/KeyPulse/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/jingyuan9527/KeyPulse/releases/tag/v1.0.0
