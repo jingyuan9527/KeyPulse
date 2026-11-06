@@ -42,7 +42,8 @@
 - [x] `VERSION` → 1.0.1；`CHANGELOG.md` 增 1.0.1 条目（如实写明仅交付形态变化、程序功能与 1.0.0 相同、不含 macOS）
 - [x] `scripts/package-release.sh` 同时产出免解压直下的 `KeyPulse-1.0.1-win-x64.exe`，并打印上传资产 SHA256
 - [x] `scripts/check-version.sh`、`docs/versioning.md` §7/§8、`docs/release.md`、`README.md` 同步三资产规范
-- [ ] 全量构建与校验、本地提交、推送 tag、创建 Release 并上传 exe / zip / SHA256SUMS 三个资产、匿名回读校验
+- [x] 全量构建与校验、本地提交、推送 tag、创建 Release 并上传 exe / zip / SHA256SUMS 三个资产、回读校验（`go test ./...` 全 PASS、页面回归 7 项 PASS、PE subsystem 正确、10 项清单 OK、三个资产服务端 digest 与回读字节哈希一致，latest 已指向 v1.0.1）
+- 本机根目录 exe **本轮未替换**：用户当前运行着 1.0.0 托盘（PID 72168，13:12 启动），文件被占用、不擅自结束进程；需要本机升级时退出托盘，把 `dist/KeyPulse-1.0.1-win-x64.exe` 覆盖为 `keypulse.exe` 即可，历史数据不清空。
 
 ## 后续 PATCH 候选（本轮未改代码）
 
