@@ -45,6 +45,22 @@
 - [x] 全量构建与校验、本地提交、推送 tag、创建 Release 并上传 exe / zip / SHA256SUMS 三个资产、回读校验（`go test ./...` 全 PASS、页面回归 7 项 PASS、PE subsystem 正确、10 项清单 OK、三个资产服务端 digest 与回读字节哈希一致，latest 已指向 v1.0.1）
 - 本机根目录 exe **本轮未替换**：用户当前运行着 1.0.0 托盘（PID 72168，13:12 启动），文件被占用、不擅自结束进程；需要本机升级时退出托盘，把 `dist/KeyPulse-1.0.1-win-x64.exe` 覆盖为 `keypulse.exe` 即可，历史数据不清空。
 
+## 实时模式（2026-11-06 本轮实现，待发 MINOR）
+
+方案选型：用户确认走 **B（file:// 本地 live.js + 页面局部更新）**，否决 A（1 秒整页重载会闪）与 C（本地 HTTP/SSE 会碰「零联网」红线、按 `docs/versioning.md` §3.2 可能要升 2.0.0）。
+
+- [x] `internal/report/live.go`：`WriteLive` 读当天 + 前一日 `.bin`，复用 `toDayPayload` 生成与报告同构的今日快照；`RemoveLive` 关闭时清理；写文件加 `liveMu`
+- [x] `internal/report/report.go`：`RenderWithLive` 注入 `__KP_LIVE__` 模式标志；`Render` 保持原签名（普通模式）
+- [x] `internal/report/page.go`：动态 `<script src="live.js?t=...">` 每秒轮询，`applyLive` 替换今日数据后复用 `renderDay` 局部重渲染；只在今日视图更新；焦点在下拉框时跳过本次；连续 5 次加载失败才提示
+- [x] `cmd/keypulse/main.go`：`liveMode` 原子开关（默认关、重启不恢复）、`liveSeq`；ticker 在 `Flush` 后且仅 `changed/force` 时写 `live.js`；开关切换的文件 IO 全丢 goroutine，不阻塞钩子消息循环；切换时先 `Flush(true)` 防数字倒退
+- [x] `internal/tray/tray_windows.go`：`MF_CHECKED` 勾选菜单项、`OnLiveToggle` / `Live` 回调、切换气泡提示
+- [x] 测试：`internal/report/live_test.go`（口径一致、seq 递增、清理、缺文件、模式标志）；`scripts/check-page.js` 新增实时局部更新与普通模式零轮询两项
+- [x] 验证：`go test ./...` 全 PASS、页面回归 **9 项 PASS**、`gofmt` 干净、`go vet` 仅剩已知 3 条 Win32 `unsafe.Pointer` 提示
+- [x] **实机验证缓存行为**：Chrome headless + CDP 确认 `file://` 下带 query 的动态 script 能读到改写后的内容（seq 1→2→3），B 方案的关键前提成立
+- [x] 文档：`README.md` 新增「实时模式（可选）」小节与落盘清单、`CHANGELOG.md` Unreleased 条目
+- [ ] 待用户确认后按 `docs/versioning.md` 发 **MINOR**（1.1.0）：升 `VERSION`、把 Unreleased 转成带日期的正式条目、跑 `check-version.sh` + `package-release.sh`、推 tag / Release、回读三资产校验
+- [ ] 人工实机复核（工具会话无法常驻托盘）：托盘菜单勾选状态、切换气泡、报告页数字随按键跳动、关闭后恢复 60 秒刷新
+
 ## 后续 PATCH 候选（本轮未改代码）
 
 - [ ] `health.log` 出现 3 条 RECOVER（2026-11-06 11:51:01 / 11:52:43 / 13:00:51，gap 1~2s，reason=input_without_callback），推测集中在锁屏切换与退出托盘瞬间：系统最后输入 tick 变化而钩子已无回调，心跳按保守策略重挂并标注近似缺口。数据本身未丢失，属「宁可提示近似也不漏计数」的设计结果，不是故障；若确认主要来自退出路径，可在 `h.Quit()` 前置 stopping 标志抑制最后一轮心跳。任何改动按 `docs/versioning.md` 以新的 PATCH 发布（1.0.1 已用于交付形态调整），不得跳版本。

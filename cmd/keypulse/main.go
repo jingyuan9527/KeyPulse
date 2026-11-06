@@ -43,6 +43,8 @@ var (
 	reportActive    atomic.Int64 // 保活截止时刻（UnixNano）
 	lastReportGen   atomic.Int64 // 上次生成时刻（UnixNano）
 	lastHealthNotif atomic.Int64 // 上次弹恢复气泡的时刻（UnixNano）
+	liveMode        atomic.Bool  // 实时模式开关：默认关闭、重启不恢复
+	liveSeq         atomic.Uint64
 )
 
 // appendHealthLog 只在钩子自动恢复时写一行，不含任何按键内容。
@@ -108,7 +110,7 @@ func writeReport(dir string) (string, error) {
 	if len(days) == 0 {
 		return "", fmt.Errorf("暂无统计数据")
 	}
-	p, err := report.Render(dir, days)
+	p, err := report.RenderWithLive(dir, days, liveMode.Load())
 	if err == nil {
 		lastReportGen.Store(time.Now().UnixNano())
 	}
@@ -307,6 +309,29 @@ func main() {
 		},
 		OnExport: func() { exportCSV(*dir) },
 		Paused:   hook.Paused,
+		Live:     func() bool { return liveMode.Load() },
+		OnLiveToggle: func() bool {
+			on := !liveMode.Load()
+			liveMode.Store(on)
+			// 托盘菜单跑在钩子的消息循环线程上，读快照 / 写 HTML 一律
+			// 丢到 goroutine，绝不能同步做文件 IO 阻塞输入。
+			go func() {
+				_, _ = st.Flush(true) // 先把内存计数落盘，实时值不会「倒退」
+				if on {
+					_ = report.WriteLive(*dir, liveSeq.Add(1), time.Now())
+					reportActive.Store(time.Now().Add(reportKeepAlive).UnixNano())
+				} else {
+					_ = report.RemoveLive(*dir)
+				}
+				_, _ = writeReport(*dir) // 重写页面以注入 / 撤掉实时模式标志
+				if on {
+					tray.Notify("实时模式已开启", "报告每秒更新今日数据；已打开的页面会在 60 秒内自动切换。会增加少量磁盘写入，关闭即恢复空闲零 IO。")
+				} else {
+					tray.Notify("实时模式已关闭", "报告回到 60 秒自动刷新，空闲时不再额外写盘。")
+				}
+			}()
+			return on
+		},
 	}); err != nil {
 		fmt.Println("托盘初始化失败:", err)
 		h.Uninstall()
@@ -336,6 +361,11 @@ func main() {
 					h.Heartbeat()
 				}
 				changed, _ := st.Flush(force)
+				// 实时通道只在数据真的变了时写；无输入时保持零额外 IO。
+				// 读的是刚落盘的 .bin，与重新生成报告同源，口径完全一致。
+				if liveMode.Load() && (changed || force) {
+					_ = report.WriteLive(*dir, liveSeq.Add(1), time.Now())
+				}
 				if changed {
 					backgroundReport(*dir)
 				}

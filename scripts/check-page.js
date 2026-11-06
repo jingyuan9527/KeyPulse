@@ -30,11 +30,13 @@ const getEl = (id) => {
   return nodes[id];
 };
 let onHashChange = null;
+let intervals = 0;
 const sandbox = {
   window: { addEventListener: (ev, fn) => { if (ev === 'hashchange') onHashChange = fn; } },
   document: { getElementById: getEl },
   location: { hash: '#today' },
   console: console,
+  setInterval: () => { intervals++; return 0; },
 };
 vm.createContext(sandbox);
 vm.runInContext(blocks[0], sandbox, { filename: 'data.js' });
@@ -118,6 +120,64 @@ vm.runInContext(blocks[1], sandbox2, { filename: 'page-health.js' });
 if (!nodes2.health || nodes2.health.className !== 'on' || !nodes2.health.innerHTML.includes('近似值')) {
   console.error('FAIL 健康提示条未渲染'); bad++;
 } else console.log('PASS 健康提示条');
+
+// 实时模式：伪造一次 live.js 加载，验证页面能局部更新今日视图，
+// 且普通模式不会启动任何轮询（保持零额外开销）。
+let liveBad = 0;
+const liveNodes = {};
+const getEl3 = (id) => {
+  if (!liveNodes[id]) liveNodes[id] = { innerHTML: '', textContent: '', className: '', onclick: null };
+  return liveNodes[id];
+};
+let livePolls = 0;
+const sandbox3 = {
+  window: { addEventListener: () => {} },
+  document: {
+    getElementById: getEl3,
+    createElement: (tag) => ({ tagName: tag.toUpperCase(), parentNode: null, src: '', onload: null, onerror: null }),
+    head: {
+      appendChild: (el) => {
+        livePolls++;
+        el.parentNode = { removeChild: () => {} };
+        const ds3 = sandbox3.window.KP_DATA;
+        const base = ds3.days[ds3.days.length - 1];
+        sandbox3.window.KP_LIVE = {
+          seq: 42,
+          gen: '2026-11-06 17:00:00',
+          d: Object.assign({}, base, { k: 999999, c: 888888 }),
+        };
+        el.onload({ type: 'load' });
+      },
+    },
+    activeElement: null,
+  },
+  location: { hash: '#today' },
+  console: console,
+  setInterval: () => 0,
+};
+vm.createContext(sandbox3);
+vm.runInContext(blocks[0], sandbox3, { filename: 'data-live.js' });
+sandbox3.window.KP_LIVE_MODE = 1;
+try {
+  vm.runInContext(blocks[1], sandbox3, { filename: 'page-live.js' });
+} catch (e) {
+  console.error('FAIL 实时模式页面抛异常: ' + e.stack); liveBad++;
+}
+const liveOut = liveNodes.view ? liveNodes.view.innerHTML : '';
+for (const s of ['999,999', '888,888', '今日速写']) {
+  if (!liveOut.includes(s)) { console.error('FAIL 实时局部更新缺少 "' + s + '"'); liveBad++; }
+}
+if (!liveNodes.meta || !liveNodes.meta.textContent.includes('实时模式')) {
+  console.error('FAIL 实时模式未在页头标注'); liveBad++;
+}
+if (!liveNodes.livehint || !liveNodes.livehint.textContent.includes('实时模式已开启')) {
+  console.error('FAIL 缺少实时模式页脚说明'); liveBad++;
+}
+if (livePolls !== 1) { console.error('FAIL 实时模式轮询次数异常: ' + livePolls); liveBad++; }
+if (!liveBad) console.log('PASS 实时模式：live.js 局部更新今日视图');
+bad += liveBad;
+if (intervals !== 0) { console.error('FAIL 普通模式启动了轮询: ' + intervals); bad++; }
+else console.log('PASS 普通模式：未启动实时轮询');
 
 const cmp = D.weeks[D.weeks.length - 1].cmp || {};
 console.log('---');

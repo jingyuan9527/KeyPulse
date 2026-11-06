@@ -2,8 +2,11 @@ package report
 
 // pageTemplate 是一份完全离线的单文件页面：CSS、图表、交互全部内嵌，
 // 不引 CDN、不联网、不发起 fetch。数据集由 Render 一次性替换 __KP_DATA__。
+// 实时模式（__KP_LIVE__=1）额外从同目录 live.js 读取今日快照，仍是本地
+// 文件读取，不起服务、不监听端口、不发出任何网络请求。
 // 注意：Go 原始字符串用反引号，因此下面的 JS 一律不用模板字符串。
 const dataPlaceholder = "__KP_DATA__"
+const livePlaceholder = "__KP_LIVE__"
 
 const pageTemplate = `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -128,14 +131,15 @@ code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:11px}
 统计口径：按键只计 keydown / syskeydown，长按连发由内存位图过滤；鼠标点击只计左右中及侧键按下，滚轮单独计数；一天按本地 00:00–23:59 归属；活跃分钟按分钟位图统计。周为周一至周日，缺失日期按 0 计入、日均固定除以 7；未完成周的结论改用同期对比。<br>
 本工具只保存计数，不保存按键序列、字符文本、窗口标题或剪贴板内容，不联网、不上传。数据目录：<code id="datadir"></code><br>
 页面已内嵌全部历史聚合数据，切换单日 / 周报 / 总览不产生任何额外读写；视图状态记录在地址栏，60 秒自动刷新后仍停留在当前页。报告在「打开统计报告」后的 10 分钟内随新数据自动更新，之后停止后台重写；重新点开托盘图标可立即刷新并再续 10 分钟。<br>
+<span id="livehint"></span>
 构建信息：<code id="ver"></code>
 </footer>
 </div>
-<script>window.KP_DATA=__KP_DATA__;</script>
+<script>window.KP_DATA=__KP_DATA__;window.KP_LIVE_MODE=__KP_LIVE__;</script>
 <script>
 (function(){
 'use strict';
-var D=window.KP_DATA;
+var D=window.KP_DATA,LIVE=(window.KP_LIVE_MODE===1);
 var view=document.getElementById('view');
 if(!D||!D.days||!D.days.length){view.innerHTML='<div class="panel hint">暂无统计数据。敲几下键盘、点几下鼠标后再打开报告。</div>';return;}
 var days=D.days,weeks=D.weeks||[],ov=D.ov||{},layout=D.layout||[],names=D.names||{};
@@ -145,6 +149,8 @@ weeks.forEach(function(w){weekByStart[w.s]=w;});
 var latest=days[days.length-1];
 document.getElementById('datadir').textContent=D.dir||'';
 document.getElementById('ver').textContent=D.ver||'';
+function liveHint(t){document.getElementById('livehint').textContent=t;}
+function refreshNote(){return LIVE?' · 实时模式（每秒更新今日）':' · 每 60 秒自动刷新';}
 var H=D.health||{};
 if(H.n){var hel=document.getElementById('health');hel.innerHTML='<b>采集提示</b> '+esc(H.nt||'');hel.className='on';}
 
@@ -174,7 +180,7 @@ function summaryHTML(s,title,note){var q=(s.q||[]).map(function(x){return '<li>'
 function dayPicker(d){var opts=days.slice().reverse().map(function(x){return '<option value="'+x.s+'"'+(x.s===d.s?' selected':'')+'>'+esc(x.d)+'（'+['','一','二','三','四','五','六','日'][x.w]+'）</option>';}).join('');return '<select onchange="KP.goDay(this.value)">'+opts+'</select><button class="navbtn" onclick="KP.goToday()">回到今天</button>';}
 function renderDay(stamp,isToday){
  var d=byStamp[stamp]||latest;isToday=!!isToday&&d.s===latest.s;
- setTab('day');meta((isToday?'今日':'回看')+' '+d.d+' · 数据截止 '+D.gen+' · 共 '+days.length+' 天数据 · 每 60 秒自动刷新');
+ setTab('day');meta((isToday?'今日':'回看')+' '+d.d+' · 数据截止 '+D.gen+' · 共 '+days.length+' 天数据'+refreshNote());
  picker(dayPicker(d));
  var prev=byStamp[prevStamp(d.s)]||null;
  if(!prev){var i=days.indexOf(d);if(i>0)prev=days[i-1];}
@@ -246,5 +252,51 @@ function route(){
 }
 window.addEventListener('hashchange',route);
 route();
+
+/* 实时模式：用动态 script 读取同目录 live.js（经典 script 标签不受
+   file:// 的 CORS 限制，fetch / XHR 会被拦），只替换今日数据并复用
+   renderDay 重渲染，不整页重载，因此不闪烁、不丢滚动位置、不打断浏览。
+   周报 / 总览仍靠 60 秒整页刷新更新聚合视图，避免实时数字与预聚合
+   的周、总览口径打架。 */
+var liveSeq=-1,liveBusy=false,liveErr=0;
+function applyLive(L){
+ var d=L.d;
+ if(!d||!d.s)return;
+ var idx=-1;
+ for(var i=0;i<days.length;i++){if(days[i].s===d.s){idx=i;break;}}
+ if(idx<0){days.push(d);days.sort(function(a,b){return a.s<b.s?-1:(a.s>b.s?1:0);});}
+ else days[idx]=d;
+ byStamp[d.s]=d;
+ latest=days[days.length-1];
+ D.gen=L.gen||D.gen;
+ var h=location.hash||'#today';
+ if(h!=='#today'&&h!=='#day='+latest.s)return;
+ if(document.activeElement&&document.activeElement.tagName==='SELECT')return;
+ route();
+}
+function pollLive(){
+ if(!LIVE||liveBusy)return;
+ liveBusy=true;
+ var s=document.createElement('script');
+ s.src='live.js?t='+Date.now();
+ s.onload=s.onerror=function(ev){
+  liveBusy=false;
+  if(s.parentNode)s.parentNode.removeChild(s);
+  if(ev&&ev.type==='error'){
+   liveErr++;
+   if(liveErr>=5)liveHint('实时数据未更新，请重新点击托盘「打开统计报告」');
+   return;
+  }
+  liveErr=0;
+  var L=window.KP_LIVE;
+  if(L&&L.seq!==liveSeq&&L.d){liveSeq=L.seq;applyLive(L);}
+ };
+ (document.head||document.body).appendChild(s);
+}
+if(LIVE){
+ liveHint('实时模式已开启：本页每秒从数据目录读取 live.js 更新今日视图，仍不联网；关闭托盘里的「实时模式」可恢复空闲零写入。');
+ pollLive();
+ setInterval(pollLive,1000);
+}
 })();
 </script></body></html>`

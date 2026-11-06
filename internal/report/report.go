@@ -69,10 +69,17 @@ func comma(n uint32) string {
 	return s + out
 }
 
-// Render 生成 report.html 并返回绝对路径。
+// Render 生成普通模式的 report.html（实时模式关闭）。
+func Render(dir string, days []store.DayData) (string, error) {
+	return RenderWithLive(dir, days, false)
+}
+
+// RenderWithLive 生成 report.html 并返回绝对路径。
+// live=true 时注入实时模式标志，页面每秒从同目录 live.js 读取今日快照并
+// 局部更新，不整页重载；普通模式下一行轮询代码都不会执行。
 // 先在内存里拼好整份文档，再一次 WriteFile：页面每 60 秒刷新、后台会重写
 // 同一文件，必须把"已截断但尚未写完"的窗口压缩到一次系统调用。
-func Render(dir string, days []store.DayData) (string, error) {
+func RenderWithLive(dir string, days []store.DayData, live bool) (string, error) {
 	if len(days) == 0 {
 		return "", fmt.Errorf("没有可统计的数据")
 	}
@@ -80,7 +87,14 @@ func Render(dir string, days []store.DayData) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	doc := strings.Replace(pageTemplate, dataPlaceholder, string(payload), 1)
+	flag := "0"
+	if live {
+		flag = "1"
+	}
+	// 先替换小占位符再替换大 JSON：避免数据内容里若出现 __KP_LIVE__
+	// 字面量被二次替换。
+	doc := strings.Replace(pageTemplate, livePlaceholder, flag, 1)
+	doc = strings.Replace(doc, dataPlaceholder, string(payload), 1)
 	path := filepath.Join(dir, "report.html")
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		return "", err

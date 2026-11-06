@@ -33,6 +33,7 @@ const (
 
 	idiApplication = 32512
 	mfString       = 0x0000
+	mfChecked      = 0x0008 // MF_CHECKED：实时菜单项的勾选标记
 	mfSeparator    = 0x0800
 	tpmReturnCmd   = 0x0100
 	tpmRightButton = 0x0002
@@ -43,6 +44,7 @@ const (
 	idPause  = 1002
 	idExport = 1003
 	idQuit   = 1004
+	idLive   = 1005
 )
 
 var (
@@ -113,10 +115,12 @@ type point struct {
 }
 
 type Config struct {
-	OnOpen   func()
-	OnToggle func() bool // 返回切换后的 paused 状态
-	OnExport func()
-	Paused   func() bool
+	OnOpen       func()
+	OnToggle     func() bool // 返回切换后的 paused 状态
+	OnExport     func()
+	Paused       func() bool
+	OnLiveToggle func() bool // 切换实时模式，返回切换后的状态；只做原子操作，IO 自行异步
+	Live         func() bool // 实时模式当前是否开启，用于菜单勾选
 }
 
 func New(c Config) error {
@@ -225,8 +229,13 @@ func showMenu() {
 	if p {
 		pauseText = "恢复采集"
 	}
+	liveFlags := uintptr(mfString)
+	if cfg.Live != nil && cfg.Live() {
+		liveFlags |= mfChecked
+	}
 	addMenuItem(menu, mfString, idOpen, "打开统计报告")
 	addMenuItem(menu, mfString, idPause, pauseText)
+	addMenuItem(menu, liveFlags, idLive, "实时模式")
 	addMenuItem(menu, mfString, idExport, "导出 CSV")
 	addMenuItem(menu, mfSeparator, 0, "")
 	addMenuItem(menu, mfString, idQuit, "退出")
@@ -251,6 +260,10 @@ func showMenu() {
 				shellNotifyIcon.Call(nimModify, uintptr(unsafe.Pointer(&nid)))
 			}
 		}
+	case idLive:
+		if cfg.OnLiveToggle != nil {
+			cfg.OnLiveToggle()
+		}
 	case idExport:
 		if cfg.OnExport != nil {
 			go cfg.OnExport()
@@ -262,7 +275,7 @@ func showMenu() {
 
 // Notify 弹一条静默托盘气泡（无提示音）。使用 nid 的副本而不是改全局结构，
 // 否则 szInfo / uFlags 会污染后续的 setTip 与 updateIcon。
-// 气泡只在钩子自动恢复这类罕见事件里出现，并由调用方做 5 分钟节流。
+// 气泡用于钩子自动恢复（调用方做 5 分钟节流）与实时模式开关反馈。
 func Notify(title, msg string) {
 	if hwnd == 0 {
 		return
