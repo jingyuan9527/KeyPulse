@@ -1,0 +1,218 @@
+# KeyPulse
+
+> **只记次数，不记内容。** 一个 Windows 常驻托盘工具，统计你每天按了多少次键、点了多少次鼠标，并把结果变成一份可以回看任意历史日期的离线报告。
+
+![Platform](https://img.shields.io/badge/Windows-10%2F11%20x64-0078D6)
+![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8)
+![Network](https://img.shields.io/badge/network-zero-brightgreen)
+![Dependencies](https://img.shields.io/badge/dependencies-none-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+**这不是键盘记录器。** 全局钩子只用来给虚拟键码计数，落盘的只有按天聚合的数字：不保存按键序列、字符文本、窗口标题、剪贴板，不截图、不联网、不上传、不隐藏进程。这是刻意的能力裁剪，不是技术限制，详见[隐私与数据](#隐私与数据)。
+
+最新版本、构建包与校验和见 [Releases](releases/latest)；统计口径见 [`docs/metrics.md`](docs/metrics.md)，发布与自测清单见 [`docs/release.md`](docs/release.md)。
+
+---
+
+## 它统计什么
+
+| 指标 | 口径 |
+|---|---|
+| 按键次数 | `WM_KEYDOWN` / `WM_SYSKEYDOWN`，长按连发由内存按下位图过滤；左右修饰键分开计 |
+| 鼠标点击 | 左 / 右 / 中 / X1 / X2 的按下，双击计 2 次 |
+| 滚轮格数 | 每个滚轮事件计 1 格，单列统计，不计入点击 |
+| 活跃分钟 | 分钟位图，该分钟内有任一按键或点击即置位 |
+| 小时分布 / Top 键 | 24 小时 × 256 个 VK 码的聚合计数 |
+
+**不统计**：鼠标移动轨迹（每秒上千次回调，在钩子入口直接丢弃）、按键序列、任何可还原输入内容的时序数据。
+
+统计值是**近似值**：以管理员权限运行的窗口、锁屏与 UAC 安全桌面下的输入收不到（UIPI）；输入法组合过程的按键会被计入，与「实际打字数」不是一回事。
+
+---
+
+## 快速开始
+
+### 直接用（推荐）
+
+1. 从 [Releases](releases/latest) 下载 `KeyPulse-<版本>-win-x64.zip`，解压到任意目录。
+2. **先跑自检**：`keypulse-cli.exe --selftest`。它只写 35 天模拟数据并生成示例报告，**不挂钩子、不建托盘、不采集任何真实输入**。
+3. 双击 `keypulse.exe`。右下角出现蓝底键帽 + 绿点图标，即开始统计；没有主窗口。
+
+> ⚠️ `keypulse.exe` 一启动就挂钩子统计真实输入。只想看界面，请用 `--selftest` 或发布包里的 `example-report.html`。
+
+### 从源码构建
+
+要求 Windows x64 + Go 1.25+，纯 Go、零第三方依赖、无需 CGO / gcc。
+
+```bash
+git clone https://github.com/jingyuan9527/KeyPulse.git
+cd KeyPulse
+bash build.sh                     # 产出 keypulse.exe / keypulse-cli.exe
+```
+
+构建脚本默认使用 `PATH` 里的 `go`。若使用便携版 Go 或需要指定缓存/代理，复制 `.env.local.example` 为 `.env.local` 并按需填写（该文件不会进入版本库）。详见 [`.env.local.example`](.env.local.example)。
+
+---
+
+## 日常使用
+
+| 操作 | 行为 |
+|---|---|
+| 双击托盘图标 | 立即生成并用默认浏览器打开 `report.html`；此后 10 分钟内报告随新数据自动更新（页面每 60 秒刷新），10 分钟后停止后台重写，回到零额外 IO。重新点开可再续 10 分钟 |
+| 右键 → 打开统计报告 | 同上 |
+| 右键 → 暂停 / 恢复采集 | 图标由蓝底绿点转为灰底琥珀点，托盘提示同步变化。**输密码前建议暂停** |
+| 右键 → 导出 CSV | 导出磁盘上全部历史，不受报告内嵌上限约束 |
+| 右键 → 退出 | 结束进程；历史数据保留 |
+
+托盘图标由 GDI 程序化绘制，按 `SM_CXSMICON` 返回的真实托盘尺寸生成（100% DPI 为 16px，高 DPI 更大），不做 32→16 硬缩；小尺寸自动精简键帽列数。
+
+---
+
+## 统计报告
+
+报告是**一份完全离线的单文件 HTML**：全部历史聚合数据一次性内嵌，切换视图只改地址栏 `#hash`，不重新读盘、不联网、不起服务；60 秒自动刷新后仍停留在当前视图。
+
+| 视图 | 内容 |
+|---|---|
+| **单日** | 下拉回看任意有记录的历史日期；4 张数字卡、该日「今日速写」、截至该日的 14 天趋势（点柱跳转）、Top 10 键、24 小时分布、键盘热力 |
+| **周报 · 对比** | 左右翻周；按键 / 点击 / 滚轮 / 活跃 / 日均逐项环比表，本周与上周逐日双色柱，周速写、24 小时叠加、逐日明细（点行回看当天） |
+| **总览** | 累计数字、按周排列的日历热力（点方格回看当天）、全期趋势、里程碑 |
+
+**周对比口径**：自然周为周一至周日，缺失日期按 0 计入、日均固定除以 7。**本周尚未结束时自动改用「同期」口径**——只比双方都已过去的对应天，避免拿 5 天总量和上一完整周的 7 天比而误判成下降；未到日期在双色柱中用虚线标出。完整周恢复总量口径。
+
+「今日速写」是数据驱动的文案规则：按键量等效对照作品、最密集时段、称号（如「敬业的下午档」）、输入习惯观察。作品换算按 `1 键 ≈ 1 字符` 粗估，卡片底部明确标注**与实际产出字数无关**。
+
+报告最多内嵌最近 366 天（默认保留 90 天）；更早的数据仍完整留在 `.bin` 里，通过「导出 CSV」查看。
+
+---
+
+## 隐私与数据
+
+### 落盘了什么
+
+一天一个 `YYYYMMDD.bin`，**固定 1536 字节**，magic `KP01`：256 个 `uint32` 键计数 + 6 个 `uint32` 鼠标计数 + 48 个小时槽 + 1440 bit 分钟活跃位图。格式见 [`docs/metrics.md`](docs/metrics.md) 第 4 节。
+
+- 数据目录：`%LOCALAPPDATA%\KeyPulse\`，默认保留 90 天（`--keep-days`，0 表示不清理）
+- `report.html`：按需生成的离线快照，删除不影响历史数据
+- `health.log`：仅在钩子自动恢复时出现，只含时间、估算缺口、累计次数，**不含任何按键内容**
+- `export.csv`：用户手动导出时才生成
+
+### 没有落盘什么
+
+按键序列、字符文本、可还原输入的时序数据、窗口标题、进程名、剪贴板、截图、网络请求。程序内没有任何联网代码路径。
+
+**为什么只存聚合**：虚拟键码序列加上时间戳约等于明文——一段 `S h i ...` 就能还原输入内容，密码、验证码、聊天记录会完整落盘；击键间隔还能用于击键动力学识别。压缩成 bitmap 或加密都改变不了「全局钩子 + 逐事件时序落盘」这个行为特征，只增加复杂度。统计只需要计数，所以这一层能力从设计上就不做。
+
+### 关于杀软误报
+
+`SetWindowsHookEx(WH_KEYBOARD_LL)` + 本地落盘，在杀软看来与键盘记录器特征重合，**首次运行可能被 Windows Defender 拦截**。这是预期行为，不要用加壳或混淆去绕，那只会坐实恶意判定。本工具代码可自查，排除项添加步骤见 [`docs/release.md`](docs/release.md) 第 5 节。
+
+---
+
+## 无感运行
+
+| 指标 | 结果 |
+|---|---|
+| 交付形态 | 单个 exe，约 2.4 MiB，免安装，不写注册表、不装服务、不注入进程 |
+| 常驻内存 | 实机约 10 MB；不常驻 WebView / 浏览器 / 本地服务 |
+| 空闲 CPU / 磁盘 | 接近 0；连续 30 秒无增量即彻底停写，空闲时零磁盘 IO |
+| 钩子回调 | 只做 `atomic.AddUint32` + `atomic.OrUint64`，零分配、零锁、零 IO、不取时钟；`WM_MOUSEMOVE` 在入口直接丢弃 |
+| 落盘粒度 | 每秒 flush，内存脏位图只写变脏的 4 字节槽 |
+
+钩子心跳每 2 秒用只读的 `GetLastInputInfo` 做外部输入基准：系统有输入但本周期钩子零回调时自动重挂，并如实标注数据缺口。检测与重挂都在钩子所属的 OS 线程消息循环内完成，通知走独立 goroutine，绝不让文件 IO 阻塞消息循环。睡眠 / 休眠 / 虚拟机暂停通过墙上时间跳跃检测强制结算到当前自然日。
+
+---
+
+## 命令行参数
+
+只有 `keypulse-cli.exe`（带控制台）会打印输出：
+
+| 参数 | 说明 |
+|---|---|
+| `--version` | 输出版本、构建时间、目标平台与 Go 版本 |
+| `--selftest` | 生成 35 天模拟数据与示例报告，**不监控真实输入** |
+| `--report-only` | 用现有数据重新生成一次报告 |
+| `--dir <路径>` | 指定数据目录，默认 `%LOCALAPPDATA%\KeyPulse` |
+| `--keep-days <N>` | 历史保留天数，默认 90，0 表示不清理 |
+
+```bash
+./keypulse-cli.exe --version
+./keypulse-cli.exe --dir D:/tmp/kp --selftest
+node scripts/check-page.js .tmp/_selftest/report.html   # 页面渲染回归（Node）
+```
+
+---
+
+## 版本与更新
+
+采用 [语义化版本](https://semver.org/lang/zh-CN/)，`VERSION` 是版本号的唯一来源，由 `-ldflags -X` 注入；`--version`、托盘提示、报告页脚共用同一份构建信息。
+
+**主版本保持克制：1.x 长期演进，不因为「做了一堆功能」就跳 2.0.0。**
+
+| 变更 | 版本号 | 例子 |
+|---|---|---|
+| 新增向后兼容的能力 | `1.x.0` | 新增视图、新增统计维度、Wails 原生窗口 |
+| 修复、性能、重构、文档 | `1.1.x` | 修复周对比口径、减小内存、补充测试 |
+| 破坏兼容且无法自动迁移 | `2.0.0` | `.bin` 格式不可读回、统计口径根本改变、隐私模型改变 |
+
+只有"旧数据读不回来 / 已公开的参数语义被删改 / 运行环境不再支持 / 隐私模型改变"这类情况才允许升主版本，且必须附带迁移方案。完整决策清单、发版 SOP、tag 与 Release 命名规范见 [`docs/versioning.md`](docs/versioning.md)，逐版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
+
+---
+
+## 项目结构
+
+```
+VERSION                 版本号唯一来源
+CHANGELOG.md            逐版本变更记录
+cmd/keypulse/           入口、单实例、自检、生命周期、时间跳跃检测
+internal/counter/       原子计数槽 + 按下位图 + 脏位图（回调唯一路径）
+internal/hook/          双低层钩子 + 独立 OS 线程消息循环 + 心跳检测与自动重挂
+internal/store/         按天二进制快照、脏槽写盘、CSV 导出
+internal/tray/          Win32 托盘、按系统尺寸绘制的两态图标、菜单、气泡通知
+internal/report/        离线单文件 HTML：紧凑数据集、周/总览聚合、文案规则、页面模板
+internal/version/       版本与构建信息（由 ldflags 注入）
+scripts/                版本校验、页面渲染回归、发布包组装
+docs/metrics.md         统计口径、文件格式、无感运行约束、隐私边界
+docs/versioning.md      版本规则与发版 SOP
+docs/release.md         发布说明、自测清单、Defender 处理、升级与回滚
+TODOS.md                任务与进度台账
+```
+
+---
+
+## 开发
+
+```bash
+bash build.sh                                # 编译到项目根目录
+bash build.sh dist/KeyPulse-<版本>            # 编译到指定目录（可绕开被占用的 exe）
+bash scripts/check-version.sh                # 发版前校验 VERSION / CHANGELOG / tag
+bash scripts/package-release.sh              # 全量测试 → 构建 → 文档 → 校验和 → 验收
+go test -buildvcs=false -count=1 ./...       # Go 单测（含 Win32 ABI 冒烟测试）
+node scripts/check-page.js <report.html>     # 页面三视图渲染回归
+```
+
+构建脚本使用 `-buildvcs=false`，产物不嵌 VCS 状态，便于复现。发布包输出到 `dist/KeyPulse-<版本>/`，含两版 exe、示例报告、文档与 `SHA256SUMS.txt`，不含源码、临时数据或任何真实采集数据。
+
+`go vet` 会对 Win32 `syscall` 传指针报 `possible misuse of unsafe.Pointer`，这是 `uintptr(unsafe.Pointer(&x))` 的固有写法，已有 ABI 冒烟测试覆盖，不作为阻断条件。
+
+---
+
+## 已知限制
+
+- 管理员权限窗口 / 锁屏 / 安全桌面下的输入收不到，统计为近似值。
+- 钩子掉线检测有 ≤2 秒延迟，触发检测的那次输入本身已丢失；`health.log` 与报告会标注缺口为近似值。
+- 长按连发固定过滤，v1 没有开关；组合键白名单计数、开机自启尚未做。
+- 界面借用系统默认浏览器展示 HTML，不是原生窗口。
+- 无开机自启，每次开机需手动启动。
+
+完整清单见 [`docs/release.md`](docs/release.md) 第 7 节。
+
+---
+
+## 贡献
+
+见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。有一条不可协商的红线：**任何贡献都不得引入按键序列记录、明文采集、联网或遥测**。功能改动需同步更新口径文档与 `CHANGELOG.md`。
+
+## 许可证
+
+见 [`LICENSE`](LICENSE)。
