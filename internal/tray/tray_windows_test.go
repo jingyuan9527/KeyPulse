@@ -165,3 +165,56 @@ func TestNotifyFlags(t *testing.T) {
 		t.Fatal("气泡通知的标志常量错误")
 	}
 }
+
+// 看板页面内已有实时推送开关，托盘不该再摆一个看起来重复的「实时模式」。
+func TestMenuItemsHideLiveWhenBoardOn(t *testing.T) {
+	base := menuItems(false, false, false)
+	if !hasMenuID(base, idLive) {
+		t.Fatal("看板关闭时托盘应显示「实时模式」")
+	}
+	withBoard := menuItems(false, false, true)
+	if hasMenuID(withBoard, idLive) {
+		t.Error("看板开启时托盘不应再显示「实时模式」")
+	}
+	for _, id := range []uintptr{idOpen, idBoard, idExport, idQuit} {
+		if !hasMenuID(withBoard, id) {
+			t.Errorf("看板开启时菜单缺少 id=%d", id)
+		}
+	}
+	if !menuChecked(withBoard, idBoard) {
+		t.Error("看板开启时「本地看板」未显示勾选态")
+	}
+	if !menuChecked(menuItems(false, true, false), idLive) {
+		t.Error("静态实时模式开启时菜单项未显示勾选态")
+	}
+	if got := menuText(base, idOpen); got != "打开统计报告（离线）" {
+		t.Errorf("打开报告菜单项未与实时看板区分: %q", got)
+	}
+}
+
+func hasMenuID(items []menuEntry, id uintptr) bool {
+	for _, it := range items {
+		if it.id == id {
+			return true
+		}
+	}
+	return false
+}
+
+func menuChecked(items []menuEntry, id uintptr) bool {
+	for _, it := range items {
+		if it.id == id {
+			return it.flags&mfChecked != 0
+		}
+	}
+	return false
+}
+
+func menuText(items []menuEntry, id uintptr) string {
+	for _, it := range items {
+		if it.id == id {
+			return it.text
+		}
+	}
+	return ""
+}

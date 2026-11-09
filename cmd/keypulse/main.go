@@ -43,7 +43,8 @@ var (
 	reportActive    atomic.Int64 // 保活截止时刻（UnixNano）
 	lastReportGen   atomic.Int64 // 上次生成时刻（UnixNano）
 	lastHealthNotif atomic.Int64 // 上次弹恢复气泡的时刻（UnixNano）
-	liveMode        atomic.Bool  // 实时模式开关：默认关闭、重启不恢复
+	liveMode        atomic.Bool  // 离线报告的实时模式：默认关闭、重启不恢复，写 live.js
+	boardLive       atomic.Bool  // 看板 SSE 推送开关，与离线报告的实时模式互不影响
 	liveSeq         atomic.Uint64
 )
 
@@ -310,21 +311,24 @@ func main() {
 		Paused:   hook.Paused,
 		Live:     func() bool { return liveMode.Load() },
 		OnLiveToggle: func() bool {
+			if boardMode.Load() {
+				// 看板开启时菜单已隐藏本项；若因状态切换的时序竞态仍被调用，
+				// 只切 SSE 推送开关，绝不碰离线报告的实时模式或落盘文件。
+				on := !boardLive.Load()
+				boardLive.Store(on)
+				if on {
+					go refreshLiveSnapshot(*dir, liveSeq.Add(1))
+					tray.Notify("实时推送已开启", "仅影响本地看板的数据推送；关闭托盘「本地看板」才会释放端口。")
+				} else {
+					tray.Notify("实时推送已暂停", "看板页面仍在，但不再推送数据；关闭托盘「本地看板」才会释放端口。")
+				}
+				return on
+			}
 			on := !liveMode.Load()
 			liveMode.Store(on)
 			// 托盘菜单跑在钩子的消息循环线程上，读快照 / 写 HTML 一律
 			// 丢到 goroutine，绝不能同步做文件 IO 阻塞输入。
 			go func() {
-				if boardMode.Load() {
-					// 看板模式只影响 SSE 推送，不产生任何静态文件写入。
-					if on {
-						refreshLiveSnapshot(*dir, liveSeq.Add(1))
-						tray.Notify("实时推送已开启", "仅影响本地看板的数据推送；关闭托盘「本地看板」才会释放端口。")
-					} else {
-						tray.Notify("实时推送已暂停", "看板页面仍在，但不再推送数据；关闭托盘「本地看板」才会释放端口。")
-					}
-					return
-				}
 				_, _ = st.Flush(true) // 先把内存计数落盘，实时值不会「倒退」
 				if on {
 					_ = report.WriteLive(*dir, liveSeq.Add(1), time.Now())
@@ -384,14 +388,14 @@ func main() {
 					h.Heartbeat()
 				}
 				changed, _ := st.Flush(force)
-				// 看板模式：快照只进内存由 SSE 推送，不写 live.js，也不再
-				// 后台重生成整份静态 HTML；普通实时模式仍走本地文件通道。
+				// 看板快照只进内存由 SSE 推送，不落盘。两条实时通道彼此独立：
+				// 用户若同时开着离线报告的实时模式，live.js 仍要继续写，
+				// 否则那个已打开的页面会因读不到新帧而挂「数据未更新」提示。
 				if changed || force {
-					if boardMode.Load() {
-						if liveMode.Load() {
-							refreshLiveSnapshot(*dir, liveSeq.Add(1))
-						}
-					} else if liveMode.Load() {
+					if boardMode.Load() && boardLive.Load() {
+						refreshLiveSnapshot(*dir, liveSeq.Add(1))
+					}
+					if liveMode.Load() {
 						_ = report.WriteLive(*dir, liveSeq.Add(1), time.Now())
 					}
 				}

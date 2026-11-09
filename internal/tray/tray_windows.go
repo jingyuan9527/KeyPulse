@@ -217,6 +217,42 @@ func addMenuItem(menu uintptr, flags, id uintptr, text string) {
 	appendMenu.Call(menu, flags, id, uintptr(unsafe.Pointer(&buf[0])))
 }
 
+type menuEntry struct {
+	flags uintptr
+	id    uintptr
+	text  string
+}
+
+// menuItems 每次右键时按当前状态现算菜单。看板页内已有实时推送开关，
+// 托盘再摆一个「实时模式」会被误认成两个功能，故看板开启时隐藏它。
+func menuItems(paused, liveOn, boardOn bool) []menuEntry {
+	pauseText := "暂停采集"
+	if paused {
+		pauseText = "恢复采集"
+	}
+	liveFlags := uintptr(mfString)
+	if liveOn {
+		liveFlags |= mfChecked
+	}
+	boardFlags := uintptr(mfString)
+	if boardOn {
+		boardFlags |= mfChecked
+	}
+	items := []menuEntry{
+		{mfString, idOpen, "打开统计报告（离线）"},
+		{mfString, idPause, pauseText},
+	}
+	if !boardOn {
+		items = append(items, menuEntry{liveFlags, idLive, "实时模式"})
+	}
+	return append(items,
+		menuEntry{boardFlags, idBoard, "本地看板（实时）"},
+		menuEntry{mfString, idExport, "导出 CSV"},
+		menuEntry{mfSeparator, 0, ""},
+		menuEntry{mfString, idQuit, "退出"},
+	)
+}
+
 func showMenu() {
 	menu, _, _ := createPopupMenu.Call()
 	if menu == 0 {
@@ -224,29 +260,19 @@ func showMenu() {
 	}
 	defer destroyMenu.Call(menu)
 
-	p := false
+	p, liveOn, boardOn := false, false, false
 	if cfg.Paused != nil {
 		p = cfg.Paused()
 	}
-	pauseText := "暂停采集"
-	if p {
-		pauseText = "恢复采集"
+	if cfg.Live != nil {
+		liveOn = cfg.Live()
 	}
-	liveFlags := uintptr(mfString)
-	if cfg.Live != nil && cfg.Live() {
-		liveFlags |= mfChecked
+	if cfg.Board != nil {
+		boardOn = cfg.Board()
 	}
-	boardFlags := uintptr(mfString)
-	if cfg.Board != nil && cfg.Board() {
-		boardFlags |= mfChecked
+	for _, it := range menuItems(p, liveOn, boardOn) {
+		addMenuItem(menu, it.flags, it.id, it.text)
 	}
-	addMenuItem(menu, mfString, idOpen, "打开统计报告")
-	addMenuItem(menu, mfString, idPause, pauseText)
-	addMenuItem(menu, liveFlags, idLive, "实时模式")
-	addMenuItem(menu, boardFlags, idBoard, "本地看板（实时）")
-	addMenuItem(menu, mfString, idExport, "导出 CSV")
-	addMenuItem(menu, mfSeparator, 0, "")
-	addMenuItem(menu, mfString, idQuit, "退出")
 
 	var pt point
 	getCursorPos.Call(uintptr(unsafe.Pointer(&pt)))

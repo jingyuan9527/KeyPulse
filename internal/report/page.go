@@ -307,7 +307,7 @@ function pollLive(){
   if(s.parentNode)s.parentNode.removeChild(s);
   if(ev&&ev.type==='error'){
    liveErr++;
-   if(liveErr>=5)liveHint('实时数据未更新，请重新点击托盘「打开统计报告」');
+   if(liveErr>=5)liveHint('实时数据未更新，请重新点击托盘「打开统计报告（离线）」');
    return;
   }
   liveErr=0;

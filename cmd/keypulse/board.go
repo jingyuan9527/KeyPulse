@@ -59,7 +59,9 @@ func startBoard(dir string, st *store.Store, c *counter.Counter) {
 	// 先把内存计数落盘，再生成首帧：实时数字与历史报告同源，不会倒退。
 	_, _ = st.Flush(true)
 	refreshLiveSnapshot(dir, liveSeq.Add(1))
-	liveMode.Store(true)
+	// 看板推送开关与静态实时模式各管各的；启停看板不得改写用户在离线
+	// 报告上勾的实时模式，否则关掉看板会顺手把那个勾选也清掉。
+	boardLive.Store(true)
 
 	srv, err := live.Start(live.Config{
 		Page: func(token string) (string, error) { return boardPage(dir, token) },
@@ -71,9 +73,9 @@ func startBoard(dir string, st *store.Store, c *counter.Counter) {
 			return v.([]byte), nil
 		},
 		TakePulse: func() [8]uint32 { return c.TakePulse() },
-		IsLive:    func() bool { return liveMode.Load() },
+		IsLive:    func() bool { return boardLive.Load() },
 		SetLive: func(on bool) {
-			liveMode.Store(on)
+			boardLive.Store(on)
 			if on {
 				go refreshLiveSnapshot(dir, liveSeq.Add(1))
 			}
@@ -83,20 +85,20 @@ func startBoard(dir string, st *store.Store, c *counter.Counter) {
 			boardSrv = nil
 			boardMu.Unlock()
 			boardMode.Store(false)
-			liveMode.Store(false)
-			tray.Notify("本地看板已自动停止", "所有页面关闭超过 30 秒，服务已停止并释放端口；重新勾选可再次打开。")
+			boardLive.Store(false)
+			tray.Notify("本地看板已自动停止", "所有页面关闭超过 30 秒，服务已停止并释放端口；离线报告与其实时模式不受影响，重新勾选可再次打开。")
 		},
 	})
 	if err != nil {
 		boardMode.Store(false)
-		liveMode.Store(false)
+		boardLive.Store(false)
 		tray.Notify("本地看板启动失败", "无法绑定 127.0.0.1 端口；统计与离线报告不受影响。")
 		return
 	}
 	boardSrv = srv
 	tray.OpenURL(srv.URL())
 	tray.Notify("本地看板已启动",
-		"仅绑定 127.0.0.1 回环，页面内可开关实时推送、键位随按键闪动；关闭全部页面 30 秒后自动停止。")
+		"仅绑定 127.0.0.1 回环；实时推送开关在页面上方，托盘「实时模式」此时隐藏。页面不落盘，关闭全部页面 30 秒后自动停止。")
 }
 
 func stopBoard(dir string) {
@@ -108,8 +110,11 @@ func stopBoard(dir string) {
 		srv.Close()
 	}
 	boardMode.Store(false)
-	liveMode.Store(false)
-	_ = report.RemoveLive(dir)
+	boardLive.Store(false)
+	// 静态实时模式若仍开着，live.js 要留着由主循环继续写；否则清掉残留。
+	if !liveMode.Load() {
+		_ = report.RemoveLive(dir)
+	}
 	tray.Notify("本地看板已关闭", "已回到默认状态，统计与离线报告不受影响。")
 }
 
