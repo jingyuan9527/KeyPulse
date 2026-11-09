@@ -95,8 +95,8 @@
 
 - [x] **版本与公告已拍板（2026-11-09 用户）**：不改 `docs/versioning.md` §3.2 规则、不升 **2.0.0**、不写破坏性说明 / 迁移方案、不单独公告；本地看板只推聚合数据、不落盘、用户主动开启，隐私模型未改变，按 MINOR 排队即可。已发布的 `v1.1.0` Release 正文按「已发布不覆盖」保持原样
 - [x] **公开承诺表述统一收敛**：README / CHANGELOG / `docs/metrics.md` / `docs/release.md` / CONTRIBUTING / 报告页脚与代码注释，一律改为「不联网、不上传、不暴露隐私」这类不绑定具体实现的表述，删去「不监听端口 / 不起服务 / 零联网 / 没有任何联网代码路径 / 无服务」等会被可选功能打破的绝对化措辞；不补防火墙弹窗、端口鉴权等额外技术说明
-- [ ] 按 13 步 SOP 升 `VERSION` → **1.2.0**（2026-11-09 14:12 用户再次确认：本地看板按 `docs/versioning.md` §2 命中②「新增向后兼容能力」走 MINOR、PATCH 归零，**不升 2.0.0**；§3.2 五条逐条不命中，纯 127.0.0.1 回环不按「引入联网/遥测」解释）、跑 `check-version.sh` + `package-release.sh`、推 tag / Release、回读三资产校验；「MINOR 一次一个主题」，macOS 移植继续排队
-- [ ] 人工实机复核（工具会话无法常驻托盘）：用户已退出托盘，根目录 `keypulse.exe` 已换成预览构建，直接双击即可；勾选「本地看板」看浏览器自动打开、敲键键位闪动、页面内开关、关页面 30 秒后 `netstat -ano | findstr 39117` 确认端口释放、默认不启用本地看板服务
+- [x] 按 13 步 SOP 升 `VERSION` → **1.2.0** 并完成发布（2026-11-09 15:43，详见下方「v1.2.0 发布」小节）；用户 14:12 再次确认按 `docs/versioning.md` §2 命中②走 MINOR、PATCH 归零、**不升 2.0.0**（§3.2 五条逐条不命中，纯 127.0.0.1 回环不按「引入联网/遥测」解释）；「MINOR 一次一个主题」，macOS 移植继续排队
+- [ ] 人工实机复核（工具会话无法常驻托盘，仍需用户在交互桌面完成）：双击 1.2.0 正式版 exe，勾选「本地看板」看浏览器自动打开、敲键键位闪动、页面内开关、关页面 30 秒后端口释放、看板开启时托盘隐藏「实时模式」且关闭后恢复、离线页实时勾选不被清掉。**SOP 第 7 步此条未由人工完成，按用户 15:39 明确「升1.2.0发版」指令先行发布**
 - [x] **2026-11-09 14:09 重新打包**：用户退出托盘后重编两版 exe（`1.1.0 (build 2026-11-09T06:08:50Z)`，6,312,448 B）、重生成示例报告、同步包内 README / CHANGELOG / docs 的收敛后文案、改写 `BOARD-PREVIEW.txt`（删除已作废的「必须拍板 §3.2 / 升 2.0.0」整段，改为收敛结论 + 发版 SOP）、重算 11 项 `SHA256SUMS.txt`、重打 zip（14 条目）、更新直下 exe，并把根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` / `preview.html` 全部同步。验证：8 包单测全 PASS、页面回归 10 项 PASS、11 项校验和全 OK、PE subsystem 2/3 正确、四处 exe 字节一致、默认 39117 未监听。**仍未提交 / 未推送 / 未发版 / VERSION 仍 1.1.0**
 
 - [x] **2026-11-09 14:18 清空 `dist/` 并改构建落点**：按用户要求删除 14 个条目 / 59 MB（1.0.0 / 1.0.1 / 1.1.0 正式版本地副本 + 两个预览包及其 exe / zip / 清单），保留空的 `dist/` 目录供发版脚本使用；已发布资产仍在 GitHub Release 可重下，历史 SHA256 记录保留在本台账。**后续约定：本地预览 / 日常构建一律 `bash build.sh .` 直接输出到项目根目录，不再往 `dist/` 生成预览包、zip 与 `SHA256SUMS.txt`；`dist/KeyPulse-<版本>/` 只在正式发版时由 `package-release.sh` 产生。** 根目录 exe 已于 14:16 直接重编（`1.1.0 (build 2026-11-09T06:16:46Z)`，6,312,448 B，三个 exe 同字节），双击即可，不依赖 `dist/`
@@ -106,6 +106,27 @@
 - [x] **2026-11-09 14:22 收敛三个入口的托盘呈现**：按用户「有了本地看板，另外两个还需要吗」的讨论结论，**保留全部能力、只收敛交互**。`tray` 新增 `menuItems()` 纯函数按状态现算菜单，看板开启时隐藏「实时模式」（页面内已有同一开关）、关闭后恢复；「打开统计报告」改名「打开统计报告（离线）」，区分可保存的单文件 HTML 与不落盘的看板页；`boardLive` 与 `liveMode` 拆成两个独立状态，修掉看板启停强制清掉静态实时勾选的耦合，两条通道并行时 `live.js` 继续写，避免离线页挂「数据未更新」提示。新增 `TestMenuItemsHideLiveWhenBoardOn` 单测；README / CHANGELOG Unreleased / `docs/release.md` / 报告页脚与提示文案同步。**不删 v1.1.0 已发布的实时模式**（按 §3.2 第 3 条删除已公开能力会撞 MAJOR，与 1.2.0 冲突）；「打开统计报告」也保留——看板不落盘、关页 30 秒即失效，且默认状态下不能要求用户先起服务才有报告可看
 
 - [x] **2026-11-09 14:48 已提交并推送 `main`**：入口收敛按「单功能点一次提交」拆成两个中文提交 —— `cc9dda7 refactor: 收敛托盘菜单并拆分看板与离线实时状态`（6 文件 / +135 −47）与 `b4aa88a docs: 同步三个报告入口说明并忽略 exe 备份文件`（5 文件 / +12 −5）；14:45 用户退出托盘后做了一次无占用干净重编（`1.1.0 (build 2026-11-09T06:45:49Z)`，6,315,008 B，无 `exe~` 残留）。`git push origin main` 快进 `118accb..b4aa88a`，`git ls-remote` 复核远端 HEAD = 本地 `b4aa88a…`，工作区干净。提交前按 AGENTS.md 第 9 条扫描：仅命中公开文档里的 `127.0.0.1` 回环地址，无真实凭据 / 本机路径 / token；**未改任何 Git 凭据配置、未用带 token 的 URL**。**仍是未升 `VERSION`（1.1.0）、未打 tag、未发 Release**，线上 v1.1.0 资产不变；正式发版按 13 步 SOP 升 `1.2.0`
+
+## v1.2.0 发布（2026-11-09 15:43，当前 latest）
+
+- [x] 版本决策：**MINOR 1.2.0、PATCH 归零、不升 2.0.0**。`docs/versioning.md` §2 命中②「新增向后兼容能力」；§3.2 破坏性五条逐条不命中（`.bin` 仍 `KP01`、口径 / CLI / CSV / 路由未变、不记序列字符窗口、无对外联网或遥测）；纯 `127.0.0.1` 回环 + 默认关闭 + 主动开启 + 只推聚合位图 + 不落盘，按 2026-11-09 拍板不按「隐私模型改变」解释。按 §4 合并发版例外，随版附带同分支的交互收敛（PATCH 级）与公开表述调整，CHANGELOG 分节登记、Release 正文逐项说明，**未夹带第二个新能力**
+- [x] 文档同步：`VERSION` → 1.2.0；CHANGELOG `Unreleased` 归入 `[1.2.0] - 2026-11-09` 并新建空 `Unreleased`；README 补「本地看板（可选）」节、体积改 6.3 MiB、项目结构补 `internal/live/`、删掉「尚未发布」；`docs/metrics.md` 措辞、`docs/release.md` 补本地看板验收条目与已知限制
+- [x] `bash scripts/check-version.sh` 通过；`bash scripts/package-release.sh` 全绿：8 包单测 PASS、页面回归 10 项 PASS、PE subsystem 2/3、10 项 `SHA256SUMS.txt` 全 OK、直下 exe == 包内 `keypulse.exe`、zip 13 条目与目录哈希一致、包内无源码 / `.env.local` / 真实数据
+- [x] 构建信息：`KeyPulse 1.2.0 (build 2026-11-09T07:43:35Z, windows/amd64, go1.25.0)`，单 exe 6,315,008 B（引入标准库 `net/http`，较 1.1.0 的 2.4 MB 增大）
+- [x] 提交与 tag：`cdf685e docs: 同步本地看板功能说明与发布自测清单` → `cbdd25c release: 发布 v1.2.0`（发版提交单独一次）；annotated tag `v1.2.0` 固定在 `cbdd25c`；`git push origin main` 快进 `e8cf0b0..cbdd25c`，`git push origin v1.2.0` 成功，远端 HEAD 一致。**未改任何 `credential.*`、未用带 token 的 URL**
+- [x] GitHub Release：`v1.2.0 · 本地看板（实时）`（id `438854409`，非 draft / 非 prerelease，正文 2449 字符取自 CHANGELOG + 校验和 + 适用系统 + 升级 + 隐私边界 + 已知限制），`https://github.com/jingyuan9527/KeyPulse/releases/tag/v1.2.0` 为当前 latest
+- [x] 三资产上传与校验（服务端 `digest` 与本地 SHA256 / size 逐一一致）：
+
+  | 资产 | 大小 | SHA256 | asset id |
+  |---|---|---|---|
+  | `KeyPulse-1.2.0-win-x64.exe` | 6,315,008 B | `c0323f995bcb988de618cc5f2d6c6bd4084c52d49c6c54bce9f9db9aafed6533` | 726651656 |
+  | `KeyPulse-1.2.0-win-x64.zip` | 5,342,679 B | `85a935fd6abe3da1f0c6ba098b12c7ec5dfd49bb95ab1a5db27bcfcb621d5b56` | 726651733 |
+  | `SHA256SUMS.txt` | 800 B | `5eaf6089392997d01a5a0a894e177b640bfb051f540e81e9d4d3a17ab40b295d` | 726651832 |
+
+- [x] 回读：`SHA256SUMS.txt` 经 API 资产端点（302 → CDN）字节回读 800 B、哈希一致；两个大文件的 CDN 直链在本机代理下 40 秒内只传到约 0.7 MB 即超时（已知 Schannel / 代理坑），**以服务端 `digest` 三项一致作为权威校验**，未强求大文件回读。`GET /releases/latest` 复核 `tag=v1.2.0`、`draft=false`、`prerelease=false`、3 个资产齐全
+- [x] 本机根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` / `preview.html` 已同步为 1.2.0 正式构建；根目录 exe 的 SHA256 = `c0323f99…6533`，与发布包及 Release 直下资产同一字节。替换时托盘进程 PID 15344 仍在运行（Windows 允许 rename 运行中的 exe），**当前进程仍是旧版，重启托盘后生效**，未擅自结束用户进程
+- [ ] 按 SOP 第 7 步，人工实机自测清单（`docs/release.md` 第 4 节，含本地看板 4 条）仍待用户在交互桌面完成；这是本次发布唯一未由工具覆盖的验收项
+- [ ] 下一个 PATCH 若需要发 **1.2.1**；其余新能力（macOS 移植等）另发 `1.x.0` 并排队，不得塞进 PATCH
 
 ## macOS 移植（后续新能力，需 `1.x.0`）
 
