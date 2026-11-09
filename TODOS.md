@@ -45,7 +45,7 @@
 - [x] 全量构建与校验、本地提交、推送 tag、创建 Release 并上传 exe / zip / SHA256SUMS 三个资产、回读校验（`go test ./...` 全 PASS、页面回归 7 项 PASS、PE subsystem 正确、10 项清单 OK、三个资产服务端 digest 与回读字节哈希一致，latest 已指向 v1.0.1）
 - [x] 2026-11-09 用户退出托盘后已替换本机根目录 exe；为同时验证实时模式，`keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` 统一换成本地预览构建（含实时模式，`VERSION` 仍 1.0.1），**不是** 1.0.1 正式版。线上 `v1.0.1` Release 与 `dist/KeyPulse-1.0.1-win-x64.exe` 保持原样，历史数据不清空。
 
-## 实时模式（2026-11-06 本轮实现，待发 MINOR）
+## 实时模式（2026-11-06 实现，已随 v1.1.0 发布）
 
 方案选型：用户确认走 **B（file:// 本地 live.js + 页面局部更新）**，否决 A（1 秒整页重载会闪）与 C（本地 HTTP/SSE 会碰「零联网」红线、按 `docs/versioning.md` §3.2 可能要升 2.0.0）。
 
@@ -62,7 +62,7 @@
 - [x] 用户于 2026-11-09 确认「两个功能一起发 **MINOR 1.1.0**」；按 `docs/versioning.md` §4 新增的合并发版例外条款执行，CHANGELOG 分节登记、Release 正文逐项说明。发布执行项见下方「v1.1.0 发布」小节
 - [ ] 人工实机复核（工具会话无法常驻托盘，只能由用户在交互桌面完成）：托盘菜单勾选状态、切换气泡、报告页数字随按键跳动、关闭后 `live.js` 被删除并恢复 60 秒刷新
 
-## 后续 PATCH 候选（本轮未改代码）
+## 心跳误报修复（已随 v1.1.0 发布）
 
 - [x] **已修复（2026-11-09）**：根因不是「锁屏误判」，而是 `GetLastInputInfo` 的 `dwTime` 更新滞后于低层钩子回调一个心跳周期，旧 `decideAction` 只看单周期「tick 变化 + 零回调」就重挂。67 条记录里 42 条 `gap<=1s`（掉线前 1 秒钩子还在回调）即为铁证。修复：`internal/hook/hook_windows.go` 加 30 秒连续静默确认窗口、`inputSinceAlive` 跨周期累计、重挂成功后重置观察窗口；`internal/report/data.go` 只统计新版 `reason=confirmed_silence`，旧误报行保留但不再挂提示；托盘气泡文案同步。新增 3 组单测（判定全表、跨周期时序错位、恢复窗口复位）与 1 个报告端旧日志忽略用例。**未删任何用户数据**，`health.log` 原 67 行保持原样。
 - [x] 发版顺序已由用户拍板：不与实时模式拆版，按 `docs/versioning.md` §4 新增的「合并发版」例外条款随 **1.1.0** 一起发布；CHANGELOG 分节登记、Release 正文逐项说明，未夹带第二个新能力。
@@ -73,12 +73,12 @@
 
 - [x] 升 `VERSION` → 1.1.0；`CHANGELOG.md` 把 Unreleased 归入 `[1.1.0] - 2026-11-09` 并保留常驻空 Unreleased、补 compare 链接
 - [x] `docs/versioning.md` §4 补「合并发版」例外条款（明确确认 / 分节登记 / 逐项说明 / 不夹带第二个新能力）
-- [ ] `bash scripts/check-version.sh` 与 `bash scripts/package-release.sh`：产出 `dist/KeyPulse-1.1.0/`、zip、直下 exe 与 `SHA256SUMS.txt`
-- [ ] 全量验证：`go test ./...`、页面回归 9 项、`--version`、PE subsystem、校验和全项 OK
-- [ ] 中文分功能点提交（心跳修复 / 升版变更）、`v1.1.0` annotated tag、推送 main 与 tag（只用 `git -c` 单次传参，不改凭据配置）
-- [ ] 创建 latest Release：正文含两个主题、校验、隐私边界、Defender 与已知限制；上传 exe / zip / SHA256SUMS 三个资产
-- [ ] 回读三个资产字节逐一比对 SHA256、确认 latest 指向；本机根目录 exe 替换为 1.1.0 正式版
-- [ ] 回填台账、工作日志与项目长期笔记；终态复核 git 配置与工作区
+- [x] `bash scripts/check-version.sh` 与 `bash scripts/package-release.sh`：产出 `dist/KeyPulse-1.1.0/`（10 项清单）、zip（2,214,695 B）、直下 exe（2,481,152 B）与 `SHA256SUMS.txt`（800 B）
+- [x] 全量验证：`go test ./...` 全 PASS、页面回归 **9 项 PASS**、`--version` = `KeyPulse 1.1.0 (build 2026-11-09T02:58:22Z)`、PE subsystem 2/3 正确、10 项校验和全 OK、真实数据目录报告 `health.n=0`（旧 68 条误报不再挂黄条）
+- [x] 中文分功能点提交：`b61654c` 心跳修复（代码 + 测试）、`7bdf39c` 升版 1.1.0 与文档同步；`v1.1.0` annotated tag 固定在 `7bdf39c`；推送 main 与 tag 全程 `git -c` 单次传参，未改任何凭据配置
+- [x] 创建 latest Release：正文含两个主题、校验、隐私边界、Defender 与已知限制；上传 exe / zip / SHA256SUMS 三个资产，服务端 digest 与本地一致
+- [x] 资产 API 回读三个文件字节逐一比对 SHA256 全 OK、匿名确认 latest 指向 v1.1.0；本机根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` 已统一替换为 1.1.0 正式版，历史数据未动
+- [x] 回填台账、工作日志与项目长期笔记；终态复核 git 配置与工作区
 
 ## macOS 移植（后续新能力，需 `1.x.0`）
 
