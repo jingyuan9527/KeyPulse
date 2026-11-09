@@ -80,6 +80,27 @@
 - [x] 资产 API 回读三个文件字节逐一比对 SHA256 全 OK、匿名确认 latest 指向 v1.1.0；本机根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` 已统一替换为 1.1.0 正式版，历史数据未动
 - [x] 回填台账、工作日志与项目长期笔记；终态复核 git 配置与工作区
 
+## 本地看板（2026-11-09 本地实现，**未发布**）
+
+用户拍板：路线 **B（127.0.0.1 高位端口 + SSE）** + 隐私边界「**只允许聚合键位位图**」；并明确「**先本地做，验证后再定版本与公告**」「**默认不开，勾选才启动**」。本轮只做本地实现与预览构建：不升 `VERSION`、不提交、不推送、不发版。公开承诺措辞按 2026-11-09 后续拍板统一收敛（见下方条目）。
+
+- [x] `internal/counter/counter.go`：新增纯内存 `[4]uint64` 键位脉冲位图（`MarkPulse` / `TakePulse`，跨天清零），不进 `.bin`；`keyboardProc` 在 `Add` 后多一次 `atomic.OrUint64`，回调仍是零分配 / 零锁 / 零 IO
+- [x] `internal/live/server.go`（新增）：只绑 `127.0.0.1` 高位端口（39117 起递增）、一次性 32 字节 token + Host/Origin 校验、CSP、`GET /` 服务端直出、`GET /events` SSE（每秒聚合快照 / 200ms 键位位图）、`POST /api/live` 页面内开关、无连接 30 秒自动关停并释放端口；纯标准库、零项目内依赖
+- [x] `internal/report/page.go` / `report.go` / `live.go`：三种页面形态共用模板（普通静态 / live.js 实时 / 看板 SSE）；`RenderServer` 只返回字符串不写文件；`LiveSnapshotJSON` 与 live.js 逐字段同源；`.key` 加 `data-vk` 与 CSS 闪动；页面内开关、SSE 客户端；**今日视图不再无条件 60 秒整页重载**（顺手修 1.1.0 偏差，周报 / 总览仍定时重载）
+- [x] `cmd/keypulse/board.go`（新增）+ `main.go` + `tray_windows.go`：托盘带勾选的「本地看板（实时）」、服务启停与 `OnStop` 复位、快照缓存 `liveSnap`、看板开启时不再后台重生成静态 HTML、退出显式释放端口；所有网络 / 文件 IO 全在 goroutine
+- [x] 验证：`go test ./...` 全 PASS（新增 `internal/live/server_test.go` 6 组、`internal/counter/counter_test.go` 2 组、report 端 RenderServer / 快照同源用例）；页面回归 **10 项 PASS**；**Chrome headless + CDP 真实浏览器 12 项 PASS**（SSE 帧、CSP、60 个 `data-vk` 键位、12 次闪动、页面内暂停 / 恢复、snapshot 后视图、自动关停、端口释放）；`gofmt` 改动文件干净、`go vet` 仅剩已知 3 条 Win32 提示
+- [x] 本地预览包：`dist/KeyPulse-board-preview/`（11 项清单全 OK）、`dist/KeyPulse-board-preview-win-x64.exe`、`dist/KeyPulse-board-preview-win-x64.zip`、`BOARD-PREVIEW.txt` 写明验证步骤与未发布状态（2026-11-09 14:09 已按收敛后文案整体重打包）
+
+**已知代价（需评估）**：引入标准库 `net/http` 后，单 exe 由 2,481,152 B 增至 **6,312,448 B**（约 2.4 MB → 6.3 MB），静态链接拉进 `net` / `crypto/tls` / `mime` 等；常驻看板时内存与 goroutine 也会上升。若体积不可接受，备选是用 `net.Listener` + 手写最小 HTTP/SSE 响应替换 `net/http`（省 2–3 MB，但要自己处理解析 / 超时 / 连接管理，风险更高）。
+
+- [x] **版本与公告已拍板（2026-11-09 用户）**：不改 `docs/versioning.md` §3.2 规则、不升 **2.0.0**、不写破坏性说明 / 迁移方案、不单独公告；本地看板只推聚合数据、不落盘、用户主动开启，隐私模型未改变，按 MINOR 排队即可。已发布的 `v1.1.0` Release 正文按「已发布不覆盖」保持原样
+- [x] **公开承诺表述统一收敛**：README / CHANGELOG / `docs/metrics.md` / `docs/release.md` / CONTRIBUTING / 报告页脚与代码注释，一律改为「不联网、不上传、不暴露隐私」这类不绑定具体实现的表述，删去「不监听端口 / 不起服务 / 零联网 / 没有任何联网代码路径 / 无服务」等会被可选功能打破的绝对化措辞；不补防火墙弹窗、端口鉴权等额外技术说明
+- [ ] 按 13 步 SOP 升 `VERSION` → **1.2.0**（2026-11-09 14:12 用户再次确认：本地看板按 `docs/versioning.md` §2 命中②「新增向后兼容能力」走 MINOR、PATCH 归零，**不升 2.0.0**；§3.2 五条逐条不命中，纯 127.0.0.1 回环不按「引入联网/遥测」解释）、跑 `check-version.sh` + `package-release.sh`、推 tag / Release、回读三资产校验；「MINOR 一次一个主题」，macOS 移植继续排队
+- [ ] 人工实机复核（工具会话无法常驻托盘）：用户已退出托盘，根目录 `keypulse.exe` 已换成预览构建，直接双击即可；勾选「本地看板」看浏览器自动打开、敲键键位闪动、页面内开关、关页面 30 秒后 `netstat -ano | findstr 39117` 确认端口释放、默认不启用本地看板服务
+- [x] **2026-11-09 14:09 重新打包**：用户退出托盘后重编两版 exe（`1.1.0 (build 2026-11-09T06:08:50Z)`，6,312,448 B）、重生成示例报告、同步包内 README / CHANGELOG / docs 的收敛后文案、改写 `BOARD-PREVIEW.txt`（删除已作废的「必须拍板 §3.2 / 升 2.0.0」整段，改为收敛结论 + 发版 SOP）、重算 11 项 `SHA256SUMS.txt`、重打 zip（14 条目）、更新直下 exe，并把根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` / `preview.html` 全部同步。验证：8 包单测全 PASS、页面回归 10 项 PASS、11 项校验和全 OK、PE subsystem 2/3 正确、四处 exe 字节一致、默认 39117 未监听。**仍未提交 / 未推送 / 未发版 / VERSION 仍 1.1.0**
+
+- [x] **2026-11-09 14:18 清空 `dist/` 并改构建落点**：按用户要求删除 14 个条目 / 59 MB（1.0.0 / 1.0.1 / 1.1.0 正式版本地副本 + 两个预览包及其 exe / zip / 清单），保留空的 `dist/` 目录供发版脚本使用；已发布资产仍在 GitHub Release 可重下，历史 SHA256 记录保留在本台账。**后续约定：本地预览 / 日常构建一律 `bash build.sh .` 直接输出到项目根目录，不再往 `dist/` 生成预览包、zip 与 `SHA256SUMS.txt`；`dist/KeyPulse-<版本>/` 只在正式发版时由 `package-release.sh` 产生。** 根目录 exe 已于 14:16 直接重编（`1.1.0 (build 2026-11-09T06:16:46Z)`，6,312,448 B，三个 exe 同字节），双击即可，不依赖 `dist/`
+
 ## macOS 移植（后续新能力，需 `1.x.0`）
 
 - [ ] 前置条件：需要 Mac 或 GitHub Actions macOS runner；签名与公证需要 Apple Developer ID

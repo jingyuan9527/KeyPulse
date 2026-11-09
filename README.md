@@ -4,11 +4,11 @@
 
 ![Platform](https://img.shields.io/badge/Windows-10%2F11%20x64-0078D6)
 ![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8)
-![Network](https://img.shields.io/badge/network-zero-brightgreen)
+![Network](https://img.shields.io/badge/network-no%20outbound-brightgreen)
 ![Dependencies](https://img.shields.io/badge/dependencies-none-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**这不是键盘记录器。** 全局钩子只用来给虚拟键码计数，落盘的只有按天聚合的数字：不保存按键序列、字符文本、窗口标题、剪贴板，不截图、不联网、不上传、不隐藏进程。这是刻意的能力裁剪，不是技术限制，详见[隐私与数据](#隐私与数据)。
+**这不是键盘记录器。** 全局钩子只用来给虚拟键码计数，落盘的只有按天聚合的数字：不保存按键序列、字符文本、窗口标题、剪贴板，不截图、不联网、不上传、不暴露隐私、不隐藏进程。这是刻意的能力裁剪，不是技术限制，详见[隐私与数据](#隐私与数据)。
 
 最新版本、构建包与校验和见 [Releases](releases/latest)；统计口径见 [`docs/metrics.md`](docs/metrics.md)，发布与自测清单见 [`docs/release.md`](docs/release.md)。
 
@@ -73,7 +73,7 @@ bash build.sh                     # 产出 keypulse.exe / keypulse-cli.exe
 
 ## 统计报告
 
-报告是**一份完全离线的单文件 HTML**：全部历史聚合数据一次性内嵌，切换视图只改地址栏 `#hash`，不重新读盘、不联网、不起服务；60 秒自动刷新后仍停留在当前视图。
+报告是**一份完全离线的单文件 HTML**：全部历史聚合数据一次性内嵌，切换视图只改地址栏 `#hash`，不重新读盘、不联网、不暴露隐私；60 秒自动刷新后仍停留在当前视图。
 
 | 视图 | 内容 |
 |---|---|
@@ -99,7 +99,7 @@ bash build.sh                     # 产出 keypulse.exe / keypulse-cli.exe
 - 周报 / 总览是预计算的聚合视图，仍沿用原来的 10 分钟保活 + 60 秒刷新规则；想立即刷新聚合视图，重新点「打开统计报告」即可。
 - 已打开的页面会在 60 秒内自动切到新模式；关闭开关会删除 `live.js`，页面回落为普通刷新。
 
-这个模式**不联网、不监听端口、不起服务、不发起 `fetch`**：`file://` 下浏览器会拦截 XHR / fetch 读取本地文件，所以用的是经典 script 标签加载同目录脚本（JSONP 式），全程只在浏览器与本地文件之间发生。隐私边界不变，落盘的仍只有聚合计数。
+这个模式**不联网、不上传、不暴露隐私**：`file://` 下浏览器会拦截 XHR / fetch 读取本地文件，所以用的是经典 script 标签加载同目录脚本（JSONP 式），全程只在浏览器与本地文件之间发生。隐私边界不变，落盘的仍只有聚合计数。
 
 代价要讲清楚：它是**更费资源**的模式——有输入时每秒多一次小文件写入，钩子回调本身**一行没改**（仍只做原子操作，零分配、零 IO）。默认关闭且重启不恢复，普通用户的默认路径保持原样。
 
@@ -119,7 +119,7 @@ bash build.sh                     # 产出 keypulse.exe / keypulse-cli.exe
 
 ### 没有落盘什么
 
-按键序列、字符文本、可还原输入的时序数据、窗口标题、进程名、剪贴板、截图、网络请求。程序内没有任何联网代码路径。
+按键序列、字符文本、可还原输入的时序数据、窗口标题、进程名、剪贴板、截图、网络请求。程序不联网、不上传、不暴露隐私。
 
 **为什么只存聚合**：虚拟键码序列加上时间戳约等于明文——一段 `S h i ...` 就能还原输入内容，密码、验证码、聊天记录会完整落盘；击键间隔还能用于击键动力学识别。压缩成 bitmap 或加密都改变不了「全局钩子 + 逐事件时序落盘」这个行为特征，只增加复杂度。统计只需要计数，所以这一层能力从设计上就不做。
 
@@ -133,8 +133,8 @@ bash build.sh                     # 产出 keypulse.exe / keypulse-cli.exe
 
 | 指标 | 结果 |
 |---|---|
-| 交付形态 | 单个 exe，约 2.4 MiB，免安装，不写注册表、不装服务、不注入进程 |
-| 常驻内存 | 实机约 10 MB；不常驻 WebView / 浏览器 / 本地服务 |
+| 交付形态 | 单个 exe，约 2.4 MiB，免安装，不写注册表、不注入进程 |
+| 常驻内存 | 实机约 10 MB；不常驻 WebView / 浏览器 |
 | 空闲 CPU / 磁盘 | 接近 0；连续 30 秒无增量即彻底停写，空闲时零磁盘 IO |
 | 钩子回调 | 只做 `atomic.AddUint32` + `atomic.OrUint64`，零分配、零锁、零 IO、不取时钟；`WM_MOUSEMOVE` 在入口直接丢弃 |
 | 落盘粒度 | 每秒 flush，内存脏位图只写变脏的 4 字节槽 |
@@ -233,7 +233,7 @@ node scripts/check-page.js <report.html>     # 页面三视图渲染回归
 
 ## 贡献
 
-见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。有一条不可协商的红线：**任何贡献都不得引入按键序列记录、明文采集、联网或遥测**。功能改动需同步更新口径文档与 `CHANGELOG.md`。
+见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。有一条不可协商的红线：**任何贡献都不得引入按键序列记录、明文采集、对外联网或遥测，也不得暴露隐私**。功能改动需同步更新口径文档与 `CHANGELOG.md`。
 
 ## 许可证
 
