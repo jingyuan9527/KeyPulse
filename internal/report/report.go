@@ -1,6 +1,6 @@
 // Package report 把全部历史统计渲染成一份完全离线的单文件 HTML 报告。
 // 数据以紧凑 JSON 一次性内嵌，页面内的单日 / 周报 / 总览切换由本地 JS 完成，
-// 不引 CDN、不联网、不发起请求、切换视图不产生额外磁盘 IO。
+// 不引 CDN、不联网、不暴露隐私、切换视图不产生额外磁盘 IO。
 package report
 
 import (
@@ -74,12 +74,29 @@ func Render(dir string, days []store.DayData) (string, error) {
 	return RenderWithLive(dir, days, false)
 }
 
-// RenderWithLive 生成 report.html 并返回绝对路径。
-// live=true 时注入实时模式标志，页面每秒从同目录 live.js 读取今日快照并
-// 局部更新，不整页重载；普通模式下一行轮询代码都不会执行。
-// 先在内存里拼好整份文档，再一次 WriteFile：页面每 60 秒刷新、后台会重写
-// 同一文件，必须把"已截断但尚未写完"的窗口压缩到一次系统调用。
-func RenderWithLive(dir string, days []store.DayData, live bool) (string, error) {
+const (
+	metaRefreshTag = `<meta http-equiv="refresh" content="60">`
+	staticNetNote  = "不联网、不上传、不暴露隐私"
+	serverNetNote  = "不联网、不上传、不暴露隐私"
+	staticFooter   = "页面已内嵌全部历史聚合数据，切换单日 / 周报 / 总览不产生任何额外读写；视图状态记录在地址栏，60 秒自动刷新后仍停留在当前页。报告在「打开统计报告」后的 10 分钟内随新数据自动更新，之后停止后台重写；重新点开托盘图标可立即刷新并再续 10 分钟。"
+	serverFooter   = "页面由本地看板服务直出，今日数据每秒更新；只有停在周报 / 总览时才会每 60 秒重载一次。浏览器全部关闭后服务自动停止并释放端口。"
+	liveFooter     = "页面已内嵌全部历史聚合数据；今日视图每秒局部更新、不整页重载，只有停在周报 / 总览时才会每 60 秒重载一次。报告在「打开统计报告」后的 10 分钟内随新数据自动更新。"
+)
+
+// safeToken 只保留十六进制字符，避免 token 被拼进 JS 字符串时引入引号或标签。
+func safeToken(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// renderDocument 按形态替换占位符，返回完整 HTML，不写文件。
+// 先替换小占位符再替换大 JSON：避免数据内容里若出现 __KP_*__ 字面量被二次替换。
+func renderDocument(dir string, days []store.DayData, live, server bool, token string) (string, error) {
 	if len(days) == 0 {
 		return "", fmt.Errorf("没有可统计的数据")
 	}
@@ -87,14 +104,51 @@ func RenderWithLive(dir string, days []store.DayData, live bool) (string, error)
 	if err != nil {
 		return "", err
 	}
-	flag := "0"
+	liveFlag, serverFlag := "0", "0"
 	if live {
-		flag = "1"
+		liveFlag = "1"
 	}
-	// 先替换小占位符再替换大 JSON：避免数据内容里若出现 __KP_LIVE__
-	// 字面量被二次替换。
-	doc := strings.Replace(pageTemplate, livePlaceholder, flag, 1)
-	doc = strings.Replace(doc, dataPlaceholder, string(payload), 1)
+	if server {
+		serverFlag = "1"
+	}
+	refresh, netNote, footer := metaRefreshTag, staticNetNote, staticFooter
+	if server {
+		refresh, netNote, footer = "", serverNetNote, serverFooter
+	} else if live {
+		// 今日视图由 live.js 局部更新，不能无条件整页重载；
+		// 改由页面 JS 只在周报 / 总览时定时重载。
+		refresh, footer = "", liveFooter
+	}
+	doc := pageTemplate
+	for _, kv := range [][2]string{
+		{refreshPlaceholder, refresh},
+		{netNotePlaceholder, netNote},
+		{footerNotePlaceholder, footer},
+		{livePlaceholder, liveFlag},
+		{serverPlaceholder, serverFlag},
+		{tokenPlaceholder, safeToken(token)},
+	} {
+		doc = strings.Replace(doc, kv[0], kv[1], 1)
+	}
+	return strings.Replace(doc, dataPlaceholder, string(payload), 1), nil
+}
+
+// RenderServer 生成本地看板页：只返回字符串、不写任何文件。
+// 页面用 SSE 收数据，页面内可一键开关实时推送。
+func RenderServer(dir string, days []store.DayData, token string) (string, error) {
+	return renderDocument(dir, days, false, true, token)
+}
+
+// RenderWithLive 生成 report.html 并返回绝对路径。
+// live=true 时注入实时模式标志，页面每秒从同目录 live.js 读取今日快照并
+// 局部更新；普通模式下一行轮询代码都不会执行。
+// 先在内存里拼好整份文档，再一次 WriteFile：页面会定时刷新、后台会重写
+// 同一文件，必须把"已截断但尚未写完"的窗口压缩到一次系统调用。
+func RenderWithLive(dir string, days []store.DayData, live bool) (string, error) {
+	doc, err := renderDocument(dir, days, live, false, "")
+	if err != nil {
+		return "", err
+	}
 	path := filepath.Join(dir, "report.html")
 	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
 		return "", err

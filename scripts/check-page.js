@@ -179,6 +179,88 @@ bad += liveBad;
 if (intervals !== 0) { console.error('FAIL 普通模式启动了轮询: ' + intervals); bad++; }
 else console.log('PASS 普通模式：未启动实时轮询');
 
+// 本地看板（SSE）：模拟 EventSource 事件，验证页面内开关、今日快照
+// 局部更新、键位位图闪动，以及「不启动 live.js 轮询」。
+let boardBad = 0;
+const boardNodes = {};
+const getEl4 = (id) => {
+  if (!boardNodes[id]) boardNodes[id] = { innerHTML: '', textContent: '', className: '', onclick: null };
+  return boardNodes[id];
+};
+const flashKeys = [
+  { vk: 65, className: 'key lv2' },
+  { vk: 66, className: 'key lv0' },
+].map((k) => ({ className: k.className, getAttribute: () => String(k.vk) }));
+const listeners = {};
+const fetchCalls = [];
+let esUrls = [];
+let boardPolls = 0;
+class FakeEventSource {
+  constructor(url) { esUrls.push(url); this.onerror = null; }
+  addEventListener(ev, fn) { listeners[ev] = fn; }
+}
+const sandbox4 = {
+  window: { addEventListener: () => {} },
+  document: {
+    getElementById: getEl4,
+    createElement: (tag) => ({ tagName: tag.toUpperCase(), parentNode: null, src: '', onload: null, onerror: null }),
+    head: { appendChild: () => { boardPolls++; } },
+    activeElement: null,
+    querySelectorAll: (sel) => (sel === '.key[data-vk]' ? flashKeys : []),
+  },
+  location: { hash: '#today' },
+  console: console,
+  setInterval: () => 0,
+  setTimeout: () => 0,
+  EventSource: FakeEventSource,
+  fetch: (url) => { fetchCalls.push(url); return Promise.resolve({}); },
+};
+vm.createContext(sandbox4);
+vm.runInContext(blocks[0], sandbox4, { filename: 'data-board.js' });
+sandbox4.window.KP_LIVE_MODE = 0;
+sandbox4.window.KP_SERVER = 1;
+sandbox4.window.KP_TOKEN = 'abc123';
+try {
+  vm.runInContext(blocks[1], sandbox4, { filename: 'page-board.js' });
+} catch (e) {
+  console.error('FAIL 本地看板页面抛异常: ' + e.stack); boardBad++;
+}
+if (esUrls.length !== 1 || !esUrls[0].includes('events?t=abc123')) {
+  console.error('FAIL 看板页未建立带 token 的 SSE 连接: ' + JSON.stringify(esUrls)); boardBad++;
+}
+if (boardPolls !== 0) { console.error('FAIL 看板页仍在轮询 live.js: ' + boardPolls); boardBad++; }
+if (!listeners.mode || !listeners.snapshot || !listeners.keys) {
+  console.error('FAIL SSE 事件监听未注册齐全'); boardBad++;
+} else {
+  listeners.mode({ data: '{"on":true}' });
+  if (!boardNodes.livetoggle || boardNodes.livetoggle.textContent !== '实时模式：开') {
+    console.error('FAIL 页面内开关未随 mode 事件更新'); boardBad++;
+  }
+  const baseDay = D.days[D.days.length - 1];
+  listeners.snapshot({ data: JSON.stringify({ seq: 77, gen: '2026-11-09 13:00:00', d: Object.assign({}, baseDay, { k: 777777, c: 666666 }) }) });
+  const boardOut = boardNodes.view ? boardNodes.view.innerHTML : '';
+  for (const s of ['777,777', '666,666', '键盘热力']) {
+    if (!boardOut.includes(s)) { console.error('FAIL 看板快照局部更新缺少 "' + s + '"'); boardBad++; }
+  }
+  // VK 65('A') 在第 3 个 uint32 的 bit 1；VK 66 不应闪。
+  const words = [0, 0, 2, 0, 0, 0, 0, 0];
+  listeners.keys({ data: JSON.stringify(words) });
+  if (!flashKeys[0].className.includes('flash') || flashKeys[1].className.includes('flash')) {
+    console.error('FAIL 键位闪动位图匹配错误: ' + JSON.stringify(flashKeys.map((k) => k.className))); boardBad++;
+  }
+  if (!boardNodes.meta || !boardNodes.meta.textContent.includes('本地看板实时')) {
+    console.error('FAIL 看板页头未标注实时状态'); boardBad++;
+  }
+}
+if (boardNodes.livetoggle && boardNodes.livetoggle.onclick) {
+  boardNodes.livetoggle.onclick();
+  if (!fetchCalls.some((u) => u.includes('api/live?t=abc123') && u.includes('on='))) {
+    console.error('FAIL 页面内开关未请求 /api/live: ' + JSON.stringify(fetchCalls)); boardBad++;
+  }
+} else { console.error('FAIL 页面内开关按钮未启用'); boardBad++; }
+if (!boardBad) console.log('PASS 本地看板：SSE 开关 / 快照更新 / 键位闪动 / 零 live.js 轮询');
+bad += boardBad;
+
 const cmp = D.weeks[D.weeks.length - 1].cmp || {};
 console.log('---');
 console.log('数据集: ' + D.days.length + ' 天 / ' + D.weeks.length + ' 周 / HTML ' + (html.length / 1024).toFixed(1) + ' KB');

@@ -1,18 +1,26 @@
 package report
 
-// pageTemplate 是一份完全离线的单文件页面：CSS、图表、交互全部内嵌，
-// 不引 CDN、不联网、不发起 fetch。数据集由 Render 一次性替换 __KP_DATA__。
-// 实时模式（__KP_LIVE__=1）额外从同目录 live.js 读取今日快照，仍是本地
-// 文件读取，不起服务、不监听端口、不发出任何网络请求。
+// pageTemplate 有三种形态，共用同一份 CSS / 渲染逻辑：
+//   - 普通静态页：内嵌历史 JSON，60 秒整页刷新；
+//   - 实时静态页：额外从同目录 live.js 每秒读今日快照（经典 script 标签）；
+//   - 本地看板页：由 127.0.0.1 回环服务直出，用 SSE 收快照与键位位图，
+//     页面内可一键开关，今日视图不整页重载。
+//
+// 三者都不引 CDN、不联网、不暴露隐私；只有看板页会连本机回环。
 // 注意：Go 原始字符串用反引号，因此下面的 JS 一律不用模板字符串。
 const dataPlaceholder = "__KP_DATA__"
 const livePlaceholder = "__KP_LIVE__"
+const serverPlaceholder = "__KP_SERVER__"
+const tokenPlaceholder = "__KP_TOKEN__"
+const refreshPlaceholder = "__KP_REFRESH__"
+const netNotePlaceholder = "__KP_NET_NOTE__"
+const footerNotePlaceholder = "__KP_FOOTER_NOTE__"
 
 const pageTemplate = `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta http-equiv="Cache-Control" content="no-store">
 <meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="refresh" content="60">
+__KP_REFRESH__
 <title>KeyPulse 输入统计</title>
 <style>
 :root{--bg:#f7f8fa;--card:#fff;--line:#e6e8ec;--text:#1f2328;--muted:#6b7280;--accent:#185fa5;--l1:#e6f1fb;--l2:#b5d4f4;--l3:#85b7eb;--l4:#378add;--l5:#185fa5;--soft:#f0f1f3;--warn:#b45309}
@@ -84,6 +92,10 @@ nav button.on{background:var(--l1);color:var(--accent);border-color:var(--l2);fo
 .key.lv3{background:var(--l3);color:#0c447c}
 .key.lv4{background:var(--l4);color:#fff}
 .key.lv5{background:var(--l5);color:#fff}
+.key.flash{animation:kppulse .3s ease-out}
+@keyframes kppulse{0%{background:var(--l5);color:#fff;transform:scale(1.12)}100%{background:var(--l4);color:#fff;transform:scale(1)}}
+.hidetoggle{display:none}
+nav button.live-on{background:var(--l1);color:var(--accent);border-color:var(--l2)}
 table.tbl{width:100%;border-collapse:collapse;font-size:13px}
 .tbl th,.tbl td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);font-weight:400}
 .tbl th{color:var(--muted);font-size:12px}
@@ -122,6 +134,7 @@ code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:11px}
 <button id="tab-day">单日</button>
 <button id="tab-week">周报 · 对比</button>
 <button id="tab-all">总览</button>
+<button id="livetoggle" class="hidetoggle">实时模式</button>
 <span class="spacer"></span>
 <span class="picker" id="picker"></span>
 </nav>
@@ -129,17 +142,18 @@ code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:11px}
 <main id="view"></main>
 <footer>
 统计口径：按键只计 keydown / syskeydown，长按连发由内存位图过滤；鼠标点击只计左右中及侧键按下，滚轮单独计数；一天按本地 00:00–23:59 归属；活跃分钟按分钟位图统计。周为周一至周日，缺失日期按 0 计入、日均固定除以 7；未完成周的结论改用同期对比。<br>
-本工具只保存计数，不保存按键序列、字符文本、窗口标题或剪贴板内容，不联网、不上传。数据目录：<code id="datadir"></code><br>
-页面已内嵌全部历史聚合数据，切换单日 / 周报 / 总览不产生任何额外读写；视图状态记录在地址栏，60 秒自动刷新后仍停留在当前页。报告在「打开统计报告」后的 10 分钟内随新数据自动更新，之后停止后台重写；重新点开托盘图标可立即刷新并再续 10 分钟。<br>
+本工具只保存计数，不保存按键序列、字符文本、窗口标题或剪贴板内容，__KP_NET_NOTE__。数据目录：<code id="datadir"></code><br>
+__KP_FOOTER_NOTE__<br>
 <span id="livehint"></span>
 构建信息：<code id="ver"></code>
 </footer>
 </div>
-<script>window.KP_DATA=__KP_DATA__;window.KP_LIVE_MODE=__KP_LIVE__;</script>
+<script>window.KP_DATA=__KP_DATA__;window.KP_LIVE_MODE=__KP_LIVE__;window.KP_SERVER=__KP_SERVER__;window.KP_TOKEN="__KP_TOKEN__";</script>
 <script>
 (function(){
 'use strict';
-var D=window.KP_DATA,LIVE=(window.KP_LIVE_MODE===1);
+var D=window.KP_DATA,LIVE=(window.KP_LIVE_MODE===1),SERVER=(window.KP_SERVER===1),TOKEN=window.KP_TOKEN||'';
+var liveOn=false;
 var view=document.getElementById('view');
 if(!D||!D.days||!D.days.length){view.innerHTML='<div class="panel hint">暂无统计数据。敲几下键盘、点几下鼠标后再打开报告。</div>';return;}
 var days=D.days,weeks=D.weeks||[],ov=D.ov||{},layout=D.layout||[],names=D.names||{};
@@ -150,7 +164,16 @@ var latest=days[days.length-1];
 document.getElementById('datadir').textContent=D.dir||'';
 document.getElementById('ver').textContent=D.ver||'';
 function liveHint(t){document.getElementById('livehint').textContent=t;}
-function refreshNote(){return LIVE?' · 实时模式（每秒更新今日）':' · 每 60 秒自动刷新';}
+function refreshNote(){
+ if(SERVER)return liveOn?' · 本地看板实时（每秒更新今日）':' · 本地看板已暂停';
+ return LIVE?' · 实时模式（每秒更新今日）':' · 每 60 秒自动刷新';
+}
+function setLiveUI(on){
+ liveOn=!!on;
+ var b=document.getElementById('livetoggle');
+ if(b){b.textContent=liveOn?'实时模式：开':'实时模式：关';b.className=liveOn?'live-on':'';}
+ if(typeof route==='function'&&view.innerHTML)route();
+}
 var H=D.health||{};
 if(H.n){var hel=document.getElementById('health');hel.innerHTML='<b>采集提示</b> '+esc(H.nt||'');hel.className='on';}
 
@@ -173,7 +196,7 @@ function card(k,v,foot){return '<div class="card"><div class="k">'+esc(k)+'</div
 function topRows(pairs,total){total=total||1;var mx=1;pairs.forEach(function(p){if(p[1]>mx)mx=p[1];});if(!pairs.length)return '<div class="hint">没有按键记录</div>';return pairs.map(function(p){return '<div class="row"><span class="nm">'+esc(kn(p[0]))+'</span><span class="track"><span class="fill" style="width:'+Math.round(p[1]*100/mx)+'%"></span></span><span class="num">'+n(p[1])+'</span></div>';}).join('');}
 function top10(d){var a=(d.e||[]).slice().sort(function(x,y){return y[1]-x[1]||x[0]-y[0];}).slice(0,10);return topRows(a,d.k);}
 function hoursHTML(hk){var mx=1;hk.forEach(function(v){if(v>mx)mx=v;});return '<div class="hours">'+hk.map(function(v,h){return '<div class="hb" style="height:'+Math.round(v*100/mx)+'%" title="'+String(h).padStart(2,'0')+':00 共 '+n(v)+' 次"></div>';}).join('')+'</div><div class="hlabels">'+hk.map(function(v,h){return '<span>'+String(h).padStart(2,'0')+'</span>';}).join('')+'</div>';}
-function heatHTML(d){var m={},mx=1;(d.e||[]).forEach(function(p){m[p[0]]=p[1];if(p[1]>mx)mx=p[1];});return '<div class="kb">'+layout.map(function(row){return '<div class="krow">'+row.map(function(vk){var c=m[vk]||0,lv=0;if(c>0){lv=Math.ceil(c*5/mx);if(lv<1)lv=1;if(lv>5)lv=5;}return '<div class="key lv'+lv+(vk===32?' wide':'')+'" title="'+esc(kn(vk))+' '+n(c)+' 次">'+esc(kn(vk))+'</div>';}).join('')+'</div>';}).join('')+'</div>';}
+function heatHTML(d){var m={},mx=1;(d.e||[]).forEach(function(p){m[p[0]]=p[1];if(p[1]>mx)mx=p[1];});return '<div class="kb">'+layout.map(function(row){return '<div class="krow">'+row.map(function(vk){var c=m[vk]||0,lv=0;if(c>0){lv=Math.ceil(c*5/mx);if(lv<1)lv=1;if(lv>5)lv=5;}return '<div class="key lv'+lv+(vk===32?' wide':'')+'" data-vk="'+vk+'" title="'+esc(kn(vk))+' '+n(c)+' 次">'+esc(kn(vk))+'</div>';}).join('')+'</div>';}).join('')+'</div>';}
 function trendHTML(list,sel,unit){var mx=1;list.forEach(function(p){if(p.k>mx)mx=p.k;});return '<div class="bars">'+list.map(function(p){var h=Math.max(1,Math.round(p.k*100/mx));var target=unit==='week'?'#week='+p.s:'#day='+p.s;return '<div class="bar click" onclick="location.hash=\''+target+'\'" title="'+esc(p.l)+' 按键 '+n(p.k)+' / 点击 '+n(p.c)+'"><div class="col'+(p.s===sel?' sel':'')+'" style="height:'+h+'%"></div><div class="lb">'+esc(p.l)+'</div></div>';}).join('')+'</div>';}
 function summaryHTML(s,title,note){var q=(s.q||[]).map(function(x){return '<li>'+esc(x)+'</li>';}).join('');return '<div class="panel summary"><h2>'+esc(title)+'</h2><div class="sm-title">'+esc(s.t)+'</div><div class="sm-lead">'+esc(s.e)+'</div><div class="sm-peak">'+esc(s.p)+' · '+esc(s.pe)+'</div><ul>'+q+'</ul><div class="sm-note">'+esc(note||D.note)+'</div></div>';}
 
@@ -293,10 +316,51 @@ function pollLive(){
  };
  (document.head||document.body).appendChild(s);
 }
-if(LIVE){
- liveHint('实时模式已开启：本页每秒从数据目录读取 live.js 更新今日视图，仍不联网；关闭托盘里的「实时模式」可恢复空闲零写入。');
+/* 本地看板：SSE 只收两类数据 —— 当天聚合快照、256-bit 键位位图。
+   没有按键序列、字符、时间戳或窗口信息；页面内开关走同源 POST。
+   键位位图只有「最近窗口按过哪些键」，因此同一键连敲只闪一次。 */
+function flashKeys(words){
+ if(!words||words.length!==8)return;
+ var keys=document.querySelectorAll('.key[data-vk]');
+ for(var i=0;i<keys.length;i++){
+  var el=keys[i],vk=Number(el.getAttribute('data-vk'));
+  if(((words[vk>>5]>>>(vk&31))&1)!==1)continue;
+  el.className=el.className.replace(/\s*flash\b/g,'')+' flash';
+  (function(node){setTimeout(function(){node.className=node.className.replace(/\s*flash\b/g,'');},320);})(el);
+ }
+}
+function setLiveRemote(on){
+ if(typeof fetch!=='function')return;
+ fetch('api/live?t='+encodeURIComponent(TOKEN)+'&on='+(on?1:0),{method:'POST'})
+  .then(function(){setLiveUI(on);}).catch(function(){liveHint('切换失败，请重新点开托盘「本地看板」');});
+}
+function startSSE(){
+ if(!SERVER||typeof EventSource==='undefined')return;
+ var es=new EventSource('events?t='+encodeURIComponent(TOKEN));
+ es.addEventListener('mode',function(ev){try{setLiveUI(JSON.parse(ev.data).on);}catch(e){}});
+ es.addEventListener('snapshot',function(ev){try{applyLive(JSON.parse(ev.data));}catch(e){}});
+ es.addEventListener('keys',function(ev){try{flashKeys(JSON.parse(ev.data));}catch(e){}});
+ es.onerror=function(){liveHint('本地看板连接已断开；关闭全部页面后服务会自动停止并释放端口');};
+}
+function refreshNonToday(){
+ // 今日视图由 SSE / live.js 局部更新，绝不整页重载；
+ // 周报 / 总览是预聚合视图，仍需定时重载才能看到新数据。
+ var h=location.hash||'#today';
+ if(h==='#today'||h==='#day='+days[days.length-1].s)return;
+ if(typeof location.reload==='function')location.reload();
+}
+if(SERVER){
+ var tb=document.getElementById('livetoggle');
+ if(tb){tb.className='';tb.onclick=function(){setLiveRemote(!liveOn);};}
+ liveHint('本地看板已连接：点上方「实时模式」开关可暂停推送；今日数据每秒更新，键位随按键闪动。服务仅绑定 127.0.0.1 回环，关闭全部页面后自动停止。');
+ setLiveUI(false);
+ startSSE();
+ setInterval(refreshNonToday,60000);
+}else if(LIVE){
+ liveHint('实时模式已开启：本页每秒从数据目录读取 live.js 更新今日视图，仍不联网、不暴露隐私；关闭托盘里的「实时模式」可恢复空闲零写入。');
  pollLive();
  setInterval(pollLive,1000);
+ setInterval(refreshNonToday,60000);
 }
 })();
 </script></body></html>`

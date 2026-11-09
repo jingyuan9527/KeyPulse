@@ -4,6 +4,7 @@
 // 零内存分配、零时间函数调用、零锁、零 IO。因此回调路径只允许：
 //   - 一次 atomic.AddUint32（计数槽）
 //   - 一次 atomic.OrUint64（脏位图）
+//   - 一次 atomic.OrUint64（键位脉冲位图，仅供本地看板闪动）
 //
 // 时间相关的处理（小时归属、分钟活跃位）全部交给每秒一次的 flush goroutine。
 package counter
@@ -43,6 +44,10 @@ type Counter struct {
 	dirty   [DirtyWords]uint64
 	keyDown [StateWords]uint64 // 256 位：当前处于按下状态的键
 	minutes [MinuteWords]uint64
+	// pulse 是「最近一个采样窗口内被按过哪些键」的 256 bit 位图。
+	// 只存在于内存：不写 .bin、不进报告快照、不带顺序 / 时间戳 / 字符 /
+	// 窗口信息，取走即清空。用于本地看板的键位闪动，与热力图的聚合口径同源。
+	pulse [StateWords]uint64
 
 	minuteDirty atomic.Bool
 }
@@ -84,6 +89,27 @@ func (c *Counter) MarkUp(vk uint32) {
 	w := vk >> 6
 	mask := ^(uint64(1) << uint(vk&63))
 	atomic.AndUint64(&c.keyDown[w], mask)
+}
+
+// MarkPulse 在钩子回调里记录「这个键刚被按过」，一次原子或、零分配。
+// 只有聚合位图，没有事件序列；同一窗口内连敲同一个键只会留下一个 bit。
+func (c *Counter) MarkPulse(vk uint32) {
+	if vk >= KeySlots {
+		return
+	}
+	atomic.OrUint64(&c.pulse[vk>>6], uint64(1)<<uint(vk&63))
+}
+
+// TakePulse 取走并清空脉冲位图，转成 8 个 uint32（小端顺序，共 256 bit）。
+// 用 uint32 是为了让浏览器端不必处理 uint64 精度问题。
+func (c *Counter) TakePulse() [8]uint32 {
+	var out [8]uint32
+	for w := range c.pulse {
+		v := atomic.SwapUint64(&c.pulse[w], 0)
+		out[w*2] = uint32(v)
+		out[w*2+1] = uint32(v >> 32)
+	}
+	return out
 }
 
 func (c *Counter) Slot(i int) uint32 { return atomic.LoadUint32(&c.slots[i]) }
@@ -161,6 +187,9 @@ func (c *Counter) ResetForNewDay() {
 	}
 	for i := range c.minutes {
 		atomic.StoreUint64(&c.minutes[i], 0)
+	}
+	for i := range c.pulse {
+		atomic.StoreUint64(&c.pulse[i], 0)
 	}
 	c.minuteDirty.Store(false)
 }

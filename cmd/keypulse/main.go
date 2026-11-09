@@ -315,6 +315,16 @@ func main() {
 			// 托盘菜单跑在钩子的消息循环线程上，读快照 / 写 HTML 一律
 			// 丢到 goroutine，绝不能同步做文件 IO 阻塞输入。
 			go func() {
+				if boardMode.Load() {
+					// 看板模式只影响 SSE 推送，不产生任何静态文件写入。
+					if on {
+						refreshLiveSnapshot(*dir, liveSeq.Add(1))
+						tray.Notify("实时推送已开启", "仅影响本地看板的数据推送；关闭托盘「本地看板」才会释放端口。")
+					} else {
+						tray.Notify("实时推送已暂停", "看板页面仍在，但不再推送数据；关闭托盘「本地看板」才会释放端口。")
+					}
+					return
+				}
 				_, _ = st.Flush(true) // 先把内存计数落盘，实时值不会「倒退」
 				if on {
 					_ = report.WriteLive(*dir, liveSeq.Add(1), time.Now())
@@ -327,6 +337,20 @@ func main() {
 					tray.Notify("实时模式已开启", "报告每秒更新今日数据；已打开的页面会在 60 秒内自动切换。会增加少量磁盘写入，关闭即恢复空闲零 IO。")
 				} else {
 					tray.Notify("实时模式已关闭", "报告回到 60 秒自动刷新，空闲时不再额外写盘。")
+				}
+			}()
+			return on
+		},
+		Board: func() bool { return boardMode.Load() },
+		OnBoardToggle: func() bool {
+			on := !boardMode.Load()
+			boardMode.Store(on)
+			// 监听端口、Flush、渲染页面全部异步，菜单线程只做一次原子写。
+			go func() {
+				if on {
+					startBoard(*dir, st, c)
+				} else {
+					stopBoard(*dir)
 				}
 			}()
 			return on
@@ -360,12 +384,18 @@ func main() {
 					h.Heartbeat()
 				}
 				changed, _ := st.Flush(force)
-				// 实时通道只在数据真的变了时写；无输入时保持零额外 IO。
-				// 读的是刚落盘的 .bin，与重新生成报告同源，口径完全一致。
-				if liveMode.Load() && (changed || force) {
-					_ = report.WriteLive(*dir, liveSeq.Add(1), time.Now())
+				// 看板模式：快照只进内存由 SSE 推送，不写 live.js，也不再
+				// 后台重生成整份静态 HTML；普通实时模式仍走本地文件通道。
+				if changed || force {
+					if boardMode.Load() {
+						if liveMode.Load() {
+							refreshLiveSnapshot(*dir, liveSeq.Add(1))
+						}
+					} else if liveMode.Load() {
+						_ = report.WriteLive(*dir, liveSeq.Add(1), time.Now())
+					}
 				}
-				if changed {
+				if changed && !boardMode.Load() {
 					backgroundReport(*dir)
 				}
 			case <-hb.C:
@@ -384,9 +414,10 @@ func main() {
 		h.Quit()
 	}()
 
-	fmt.Println("KeyPulse 已启动。双击托盘图标查看统计，右键可暂停 / 导出 / 退出。")
+	fmt.Println("KeyPulse 已启动。双击托盘图标查看统计，右键可暂停 / 导出 / 退出；勾选「本地看板」才会监听 127.0.0.1 回环端口。")
 	h.Run() // 阻塞直到 WM_QUIT
 
+	closeBoard() // 显式释放端口，不等进程退出时的隐式清理
 	close(stop)
 	wg.Wait()
 	tray.Remove()

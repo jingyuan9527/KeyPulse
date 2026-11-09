@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -128,9 +129,93 @@ func TestRenderWithLiveModeFlag(t *testing.T) {
 	if strings.Contains(doc2, livePlaceholder) {
 		t.Error("实时模式占位符未被替换")
 	}
-	// 60 秒兜底刷新在两个模式下都保留：周报 / 总览靠它更新聚合视图
-	if !strings.Contains(doc2, `http-equiv="refresh" content="60"`) {
-		t.Error("实时模式丢掉了 60 秒兜底刷新")
+	// 普通模式仍靠 meta 60 秒整页刷新；实时模式改为 JS 条件重载：
+	// 今日视图绝不重载（不闪），只有周报 / 总览每 60 秒重载。
+	if !strings.Contains(doc, `http-equiv="refresh" content="60"`) {
+		t.Error("普通模式丢掉了 60 秒刷新")
+	}
+	if strings.Contains(doc2, `http-equiv="refresh" content="60"`) {
+		t.Error("实时模式仍在无条件整页刷新，会打断今日视图")
+	}
+	if !strings.Contains(doc2, "setInterval(refreshNonToday,60000)") {
+		t.Error("实时模式缺少周报 / 总览的条件重载")
+	}
+	if !strings.Contains(doc2, "window.KP_SERVER=0;") {
+		t.Error("静态页面误开启本地看板模式")
+	}
+}
+
+func TestRenderServer(t *testing.T) {
+	dir := t.TempDir()
+	raw := []store.DayData{mkDay("20261106", 100, 10)}
+	doc, err := RenderServer(dir, raw, "a1b2c3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 服务端直出，绝不能在数据目录留下任何新文件。
+	for _, name := range []string{"report.html", LiveFileName} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("RenderServer 意外写入了 %s", name)
+		}
+	}
+	for _, want := range []string{
+		"window.KP_SERVER=1;",
+		`window.KP_TOKEN="a1b2c3";`,
+		"window.KP_LIVE_MODE=0;",
+		"不联网、不上传、不暴露隐私",
+		"浏览器全部关闭后服务自动停止",
+		"new EventSource('events?t='",
+		"api/live?t=",
+		"data-vk=",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("看板页缺少 %q", want)
+		}
+	}
+	if strings.Contains(doc, `http-equiv="refresh" content="60"`) {
+		t.Error("看板页不应有整页 meta 刷新")
+	}
+	if strings.Contains(doc, "__KP_") {
+		t.Error("看板页仍有未替换的占位符")
+	}
+	// token 只能含十六进制字符，避免拼进 JS 字符串时注入标签。
+	doc2, err := RenderServer(dir, raw, `a1";alert(1);//`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(doc2, "alert(1)") ||
+		!regexp.MustCompile(`window\.KP_TOKEN="[0-9a-fA-F]*";`).MatchString(doc2) {
+		t.Error("token 未做字符白名单过滤")
+	}
+}
+
+func TestLiveSnapshotJSONMatchesWriteLive(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 11, 6, 15, 30, 0, 0, time.Local)
+	if err := store.WriteDayFile(dir, mkDay("20261106", 4321, 321)); err != nil {
+		t.Fatal(err)
+	}
+	b, err := LiveSnapshotJSON(dir, 9, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, LiveFileName)); !os.IsNotExist(err) {
+		t.Error("LiveSnapshotJSON 不该写 live.js")
+	}
+	if err := WriteLive(dir, 9, now); err != nil {
+		t.Fatal(err)
+	}
+	s := strings.TrimSpace(string(mustRead(t, filepath.Join(dir, LiveFileName))))
+	js := strings.TrimSuffix(strings.TrimPrefix(s, "window.KP_LIVE="), ";")
+	if js != string(b) {
+		t.Error("SSE 快照与 live.js 不是逐字节同源")
+	}
+	var lp livePayload
+	if err := json.Unmarshal(b, &lp); err != nil {
+		t.Fatal(err)
+	}
+	if lp.Seq != 9 || lp.Day.Keys != 4321 {
+		t.Errorf("快照内容异常: %+v", lp)
 	}
 }
 

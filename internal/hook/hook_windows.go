@@ -402,6 +402,9 @@ func keyboardProc(code, wparam, lparam uintptr) uintptr {
 				// 位图过滤长按连发：已按下则跳过计数
 				if active.c.MarkDown(vk) && !paused.Load() {
 					active.c.Add(int(vk))
+					// 本地看板的键位闪动：只置一个 bit，不含顺序 / 字符 /
+					// 时间戳，且只留在内存，绝不落盘。
+					active.c.MarkPulse(vk)
 				}
 			case wmKeyUp, wmSysKeyUp:
 				active.c.MarkUp(vk)

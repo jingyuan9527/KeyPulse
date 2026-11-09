@@ -45,6 +45,7 @@ const (
 	idExport = 1003
 	idQuit   = 1004
 	idLive   = 1005
+	idBoard  = 1006
 )
 
 var (
@@ -115,12 +116,14 @@ type point struct {
 }
 
 type Config struct {
-	OnOpen       func()
-	OnToggle     func() bool // 返回切换后的 paused 状态
-	OnExport     func()
-	Paused       func() bool
-	OnLiveToggle func() bool // 切换实时模式，返回切换后的状态；只做原子操作，IO 自行异步
-	Live         func() bool // 实时模式当前是否开启，用于菜单勾选
+	OnOpen        func()
+	OnToggle      func() bool // 返回切换后的 paused 状态
+	OnExport      func()
+	Paused        func() bool
+	OnLiveToggle  func() bool // 切换实时模式，返回切换后的状态；只做原子操作，IO 自行异步
+	Live          func() bool // 实时模式当前是否开启，用于菜单勾选
+	OnBoardToggle func() bool // 切换本地看板，返回切换后的状态；启停一律异步
+	Board         func() bool // 本地看板当前是否开启
 }
 
 func New(c Config) error {
@@ -233,9 +236,14 @@ func showMenu() {
 	if cfg.Live != nil && cfg.Live() {
 		liveFlags |= mfChecked
 	}
+	boardFlags := uintptr(mfString)
+	if cfg.Board != nil && cfg.Board() {
+		boardFlags |= mfChecked
+	}
 	addMenuItem(menu, mfString, idOpen, "打开统计报告")
 	addMenuItem(menu, mfString, idPause, pauseText)
 	addMenuItem(menu, liveFlags, idLive, "实时模式")
+	addMenuItem(menu, boardFlags, idBoard, "本地看板（实时）")
 	addMenuItem(menu, mfString, idExport, "导出 CSV")
 	addMenuItem(menu, mfSeparator, 0, "")
 	addMenuItem(menu, mfString, idQuit, "退出")
@@ -263,6 +271,10 @@ func showMenu() {
 	case idLive:
 		if cfg.OnLiveToggle != nil {
 			cfg.OnLiveToggle()
+		}
+	case idBoard:
+		if cfg.OnBoardToggle != nil {
+			cfg.OnBoardToggle()
 		}
 	case idExport:
 		if cfg.OnExport != nil {
@@ -308,6 +320,16 @@ func OpenFile(path string) {
 	shellExecute.Call(0,
 		uintptr(unsafe.Pointer(&verb[0])),
 		uintptr(unsafe.Pointer(&p[0])),
+		0, 0, swShowNormal)
+}
+
+// OpenURL 用系统默认浏览器打开 URL（本地看板只传 127.0.0.1 回环地址）。
+func OpenURL(url string) {
+	verb := syscall.StringToUTF16("open")
+	u := syscall.StringToUTF16(url)
+	shellExecute.Call(0,
+		uintptr(unsafe.Pointer(&verb[0])),
+		uintptr(unsafe.Pointer(&u[0])),
 		0, 0, swShowNormal)
 }
 
