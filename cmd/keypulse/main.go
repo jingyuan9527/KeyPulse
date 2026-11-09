@@ -47,8 +47,8 @@ var (
 	liveSeq         atomic.Uint64
 )
 
-// appendHealthLog 只在钩子自动恢复时写一行，不含任何按键内容。
-// 报告生成时读取它，用来如实标注数据缺口。
+// appendHealthLog 只在确认采集中断并恢复时写一行，不含任何按键内容。
+// 报告生成时读取它，用来如实标注数据缺口；旧版误报记录由报告端忽略。
 func appendHealthLog(dir string, r hook.Recovery) {
 	p := filepath.Join(dir, "health.log")
 	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
@@ -289,8 +289,7 @@ func main() {
 			}
 		}
 		tray.Notify("KeyPulse 采集已恢复",
-			"检测到有输入未被采集到（系统卸载钩子 / 锁屏 / 高权限窗口均可能），已自动重挂；约 "+
-				humanGap(r.GapSec)+"内的输入可能未计入。")
+			"检测到连续 "+humanGap(r.GapSec)+"的输入无法采集，已自动重挂；该时段统计为近似值。")
 	})
 
 	h, err := hook.Install(c)

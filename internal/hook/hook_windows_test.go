@@ -62,36 +62,113 @@ func TestGetLastInputInfoABI(t *testing.T) {
 	}
 }
 
-// 心跳判定全表：覆盖首周期基线、API 失败、无输入、钩子正常、
-// 冷却期抑制、疑似掉线触发重挂、以及重挂失败后的无条件重试。
+// 心跳判定全表：覆盖首周期基线、API 失败、无输入、钩子正常、冷却期抑制、
+// 静默窗口抑制（旧版误报主因）、确认掉线触发重挂、重挂失败无条件重试。
 func TestDecideAction(t *testing.T) {
 	cases := []struct {
-		name                              string
-		first, ok, changed, alive, broken bool
-		elapsed, gap                      time.Duration
-		want                              healthAction
+		name                                string
+		first, ok, alive, broken, inputSeen bool
+		elapsed, silence, gap               time.Duration
+		want                                healthAction
 	}{
-		{"首周期只建基线", true, true, true, false, false, time.Hour, reinstallMinGap, actionNone},
-		{"GetLastInputInfo 失败", false, false, true, false, false, time.Hour, reinstallMinGap, actionNone},
-		{"系统无新输入", false, true, false, false, false, time.Hour, reinstallMinGap, actionNone},
-		{"有输入且钩子有回调", false, true, true, true, false, time.Hour, reinstallMinGap, actionNone},
-		{"疑似掉线但冷却未过", false, true, true, false, false, time.Second, reinstallMinGap, actionNone},
-		{"退避到 60 秒时冷却未过", false, true, true, false, false, 30 * time.Second, reinstallMaxGap, actionNone},
-		{"疑似掉线且冷却已过", false, true, true, false, false, 6 * time.Second, reinstallMinGap, actionReinstall},
-		{"重挂失败后无条件重试", false, true, false, false, true, 0, reinstallMaxGap, actionRetry},
-		{"broken 优先于首周期", true, false, false, false, true, 0, reinstallMaxGap, actionRetry},
+		{"首周期只建基线", true, true, false, false, true, time.Hour, time.Hour, reinstallMinGap, actionNone},
+		{"GetLastInputInfo 失败", false, false, false, false, true, time.Hour, time.Hour, reinstallMinGap, actionNone},
+		{"期间系统无输入", false, true, false, false, false, time.Hour, time.Hour, reinstallMinGap, actionNone},
+		{"有输入且钩子有回调", false, true, true, false, true, time.Hour, time.Hour, reinstallMinGap, actionNone},
+		{"静默仅 1 秒：旧版误报主因", false, true, false, false, true, time.Hour, time.Second, reinstallMinGap, actionNone},
+		{"静默期已过但冷却未过", false, true, false, false, true, time.Second, time.Hour, reinstallMinGap, actionNone},
+		{"退避到 60 秒时冷却未过", false, true, false, false, true, 30 * time.Second, time.Hour, reinstallMaxGap, actionNone},
+		{"静默窗口差 1ns 不重挂", false, true, false, false, true, time.Hour, confirmedSilence - time.Nanosecond, reinstallMinGap, actionNone},
+		{"静默与冷却均已过才重挂", false, true, false, false, true, 6 * time.Second, confirmedSilence, reinstallMinGap, actionReinstall},
+		{"重挂失败后无条件重试", false, true, false, true, false, 0, 0, reinstallMaxGap, actionRetry},
+		{"broken 优先于首周期", true, false, false, true, false, 0, 0, reinstallMaxGap, actionRetry},
 	}
 	for _, c := range cases {
-		got := decideAction(c.first, c.ok, c.changed, c.alive, c.broken, c.elapsed, c.gap)
+		got := decideAction(c.first, c.ok, c.alive, c.broken, c.inputSeen, c.elapsed, c.silence, c.gap)
 		if got != c.want {
 			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
 		}
 	}
-	if !shouldReinstall(true, false, reinstallMinGap, reinstallMinGap) {
-		t.Error("冷却期刚好到达时应允许重挂")
+	if !shouldReinstall(true, false, confirmedSilence, reinstallMinGap, reinstallMinGap) {
+		t.Error("静默窗口与冷却期刚好到达时应允许重挂")
 	}
-	if shouldReinstall(true, false, reinstallMinGap-time.Nanosecond, reinstallMinGap) {
+	if shouldReinstall(true, false, confirmedSilence, reinstallMinGap-time.Nanosecond, reinstallMinGap) {
 		t.Error("冷却期未到不应重挂")
+	}
+	if shouldReinstall(true, false, confirmedSilence-time.Nanosecond, reinstallMinGap, reinstallMinGap) {
+		t.Error("静默窗口未到不应重挂")
+	}
+	if shouldReinstall(false, false, confirmedSilence, reinstallMinGap, reinstallMinGap) {
+		t.Error("期间系统无输入不应重挂")
+	}
+	if shouldReinstall(true, true, confirmedSilence, reinstallMinGap, reinstallMinGap) {
+		t.Error("钩子有回调不应重挂")
+	}
+}
+
+// 复现线上 67 条假阳性里的主因：回调先到、系统输入 tick 晚一个心跳周期变化。
+// 旧判定会在第二个周期直接重挂并写 health.log；新判定要求连续 30 秒静默。
+func TestObserveHealthFiltersCrossCycleTickLag(t *testing.T) {
+	base := time.Now()
+	h := &Hook{lastAlive: base, gap: reinstallMinGap, lastRecover: base}
+
+	h.observeHealth(base.Add(2*time.Second), true, false) // 用户敲键，钩子有回调
+	h.observeHealth(base.Add(4*time.Second), false, true) // tick 滞后变化，本周期无回调
+	silence := 2 * time.Second
+	if got := decideAction(false, true, false, false, h.inputSinceAlive, time.Hour, silence, h.gap); got != actionNone {
+		t.Errorf("跨周期 tick 错位被误判为掉线: %v", got)
+	}
+	h.observeHealth(base.Add(6*time.Second), true, false) // 钩子恢复回调
+	if h.inputSinceAlive || h.suspects != 0 {
+		t.Errorf("确认存活后观察窗口未复位: inputSinceAlive=%v suspects=%d", h.inputSinceAlive, h.suspects)
+	}
+
+	// 真掉线：连续 31 秒系统有输入、钩子零回调，仍必须检出
+	h2 := &Hook{lastAlive: base, gap: reinstallMinGap, lastRecover: base}
+	h2.observeHealth(base.Add(time.Second), false, true)
+	for s := 3; s <= 31; s += 2 {
+		h2.observeHealth(base.Add(time.Duration(s)*time.Second), false, false)
+	}
+	now := base.Add(31 * time.Second)
+	if got := decideAction(false, true, false, false, h2.inputSinceAlive,
+		now.Sub(h2.lastRecover), now.Sub(h2.lastAlive), h2.gap); got != actionReinstall {
+		t.Errorf("真实掉线未检出: %v", got)
+	}
+}
+
+// 重挂成功后必须重置观察窗口，否则下个心跳会因"仍无回调且静默期已过"
+// 立刻再重挂一次；同时验证新版 reason 与估算缺口。
+func TestRecordRecoveryResetsObservation(t *testing.T) {
+	ch := make(chan Recovery, 1)
+	SetRecoveryHandler(func(r Recovery) { ch <- r })
+	now := time.Now()
+	h := &Hook{
+		lastAlive:       now.Add(-95 * time.Second),
+		inputSinceAlive: true,
+		suspects:        7,
+		gap:             reinstallMinGap,
+	}
+	h.recordRecovery(now)
+	select {
+	case r := <-ch:
+		if r.Reason != "confirmed_silence" {
+			t.Errorf("reason = %q，应为 confirmed_silence", r.Reason)
+		}
+		if r.GapSec != 95 {
+			t.Errorf("GapSec = %d，应为 95", r.GapSec)
+		}
+		if r.Total != 1 {
+			t.Errorf("Total = %d，应为 1", r.Total)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("恢复通知未在 1 秒内到达")
+	}
+	if h.inputSinceAlive || h.suspects != 0 || !h.lastAlive.Equal(now) {
+		t.Errorf("观察窗口未复位: inputSinceAlive=%v suspects=%d lastAlive=%v",
+			h.inputSinceAlive, h.suspects, h.lastAlive)
+	}
+	if h.gap != 2*reinstallMinGap {
+		t.Errorf("退避未生效: gap=%v", h.gap)
 	}
 }
 

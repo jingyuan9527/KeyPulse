@@ -141,9 +141,10 @@ type overviewPayload struct {
 	Quips       []string     `json:"q"`
 }
 
-// healthPayload 来自 health.log：钩子被系统静默卸载后自动重挂的记录。
-// 只含时间与估算缺口，不含任何按键内容。重挂窗口内的输入确实会漏计，
-// 所以必须在页面上如实标注，不能把近似值伪装成精确统计。
+// healthPayload 来自 health.log：钩子连续静默且期间系统有输入、确认中断后
+// 自动重挂的记录。只含时间与估算缺口，不含任何按键内容。中断窗口内的输入
+// 确实会漏计，所以必须在页面上如实标注，不能把近似值伪装成精确统计。
+// 旧版把单周期的输入/回调时序错位也记为恢复，那些行由 readHealthLog 忽略。
 type healthPayload struct {
 	Total int    `json:"n"`
 	Today int    `json:"t"`
@@ -152,6 +153,11 @@ type healthPayload struct {
 }
 
 const healthLogMaxBytes = 64 * 1024
+
+// 只有经过静默窗口确认的恢复才计入报告。旧版 reason=input_without_callback
+// 绝大多数是"1 秒前钩子还在回调"的误报，升级后不应继续挂着采集提示；
+// 日志本身保留不删，历史数据可追溯。
+const healthReasonConfirmed = "confirmed_silence"
 
 func gapLabel(sec int) string {
 	switch {
@@ -184,6 +190,9 @@ func readHealthLog(dir string, now time.Time) healthPayload {
 		if len(ln) < 19 || !strings.Contains(ln, " RECOVER ") {
 			continue
 		}
+		if !strings.Contains(ln, "reason="+healthReasonConfirmed) {
+			continue // 旧版误报记录，不升级提示条
+		}
 		ts := ln[:19]
 		if _, err := time.ParseInLocation("2006-01-02 15:04:05", ts, time.Local); err != nil {
 			continue
@@ -211,11 +220,11 @@ func readHealthLog(dir string, now time.Time) healthPayload {
 	if truncated {
 		prefix = "最近记录到" // 日志超过读取上限，只统计尾部
 	}
-	h.Note = fmt.Sprintf("%s %d 次「有输入但采集不到」并自动重挂", prefix, total)
+	h.Note = fmt.Sprintf("%s %d 次采集中断并自动重挂", prefix, total)
 	if todayCount > 0 {
 		h.Note += fmt.Sprintf("（今日 %d 次）", todayCount)
 	}
-	h.Note += fmt.Sprintf("，最近一次 %s，最长缺口约 %s。可能原因包括系统静默卸载钩子、锁屏或以管理员权限运行的窗口；缺口内的输入未被计入，该时段统计为近似值。",
+	h.Note += fmt.Sprintf("，最近一次 %s，最长缺口约 %s。多为系统静默卸载钩子或长时间停留在高完整性窗口；缺口内的输入未被计入，该时段统计为近似值。",
 		last[11:16], gapLabel(maxGap))
 	return h
 }

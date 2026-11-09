@@ -166,10 +166,11 @@ func TestDatasetEmpty(t *testing.T) {
 func TestHealthLogInjection(t *testing.T) {
 	dir := t.TempDir()
 	today := time.Now().Format("2006-01-02")
-	log := today + " 09:12:03 RECOVER gap=7s total=1\n" +
-		today + " 10:44:20 RECOVER gap=132s total=2\n" +
+	log := today + " 09:12:03 RECOVER gap=7s total=1 reason=confirmed_silence\n" +
+		today + " 10:44:20 RECOVER gap=132s total=2 reason=confirmed_silence\n" +
+		today + " 08:00:00 RECOVER gap=1s total=0 reason=input_without_callback\n" +
 		"这不是一条合法记录\n" +
-		"</script><script>alert(1)</script> RECOVER gap=1s total=3\n"
+		"</script><script>alert(1)</script> RECOVER gap=1s total=3 reason=confirmed_silence\n"
 	if err := os.WriteFile(filepath.Join(dir, "health.log"), []byte(log), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -209,6 +210,20 @@ func TestHealthLogInjection(t *testing.T) {
 	}
 	if h := decode(t, b2).Health; h.Total != 0 || h.Note != "" {
 		t.Errorf("无日志时不应有健康提示: %+v", h)
+	}
+	// 只有旧版误报日志时同样不应产生提示（用户升级后历史 health.log 保留）
+	dir3 := t.TempDir()
+	legacy := today + " 09:00:00 RECOVER gap=0s total=1 reason=input_without_callback\n" +
+		today + " 09:00:02 RECOVER gap=1s total=2 reason=input_without_callback\n"
+	if err := os.WriteFile(filepath.Join(dir3, "health.log"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b3, err := BuildDataset(dir3, raw, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := decode(t, b3).Health; h.Total != 0 || h.Note != "" {
+		t.Errorf("旧版误报日志不应再挂采集提示: %+v", h)
 	}
 }
 

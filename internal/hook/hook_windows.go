@@ -41,11 +41,17 @@ const (
 
 	belowNormalPriorityClass = 0x00004000
 
-	// 重挂冷却：正常 5 秒；连续掉线（多为锁屏 / UAC 安全桌面 / 高完整性窗口
-	// 造成的"有输入但钩子收不到"假阳性）逐级退避到最多 60 秒，避免风暴。
+	// 重挂冷却：正常 5 秒，连续恢复逐级退避到最多 60 秒；
 	// 一旦某个心跳周期确认钩子有回调，立即复位。
 	reinstallMinGap = 5 * time.Second
 	reinstallMaxGap = 60 * time.Second
+
+	// 确认掉线所需的连续静默时长。低层钩子回调与 GetLastInputInfo 的
+	// dwTime 更新并非同一时刻：实测 67 次旧记录里 42 次 gap<=1s，即
+	// "掉线"前 1 秒钩子还在正常回调，物理上不可能是静默卸载。
+	// 因此单周期「有输入但零回调」只是嫌疑，必须同时满足：期间系统确实
+	// 有输入，且钩子连续这么久零回调，才认定为真实掉线。
+	confirmedSilence = 30 * time.Second
 )
 
 var (
@@ -79,9 +85,9 @@ var (
 	recoveryHandler atomic.Value
 )
 
-// Recovery 是一次"检测到系统有输入但钩子零回调 → 自动重挂成功"的记录。
-// 只含时间与估算缺口，不含任何按键内容。注意这不等于证明钩子被卸载：
-// 锁屏、UAC 安全桌面、高完整性进程窗口同样会让本进程收不到回调。
+// Recovery 是一次"确认钩子连续静默且期间系统有输入 → 自动重挂成功"的记录。
+// 只含时间与估算缺口，不含任何按键内容。必须是经过静默窗口确认的中断，
+// 单周期的输入/回调时序错位不再写入，避免把正常运行误报成数据缺口。
 type Recovery struct {
 	At     time.Time
 	GapSec int    // 距上次确认钩子存活的秒数，即可能漏计的时间窗
@@ -112,8 +118,12 @@ type Hook struct {
 	lastRecover time.Time
 	gap         time.Duration
 	recoveries  int
-	suspects    int
+	suspects    int  // 自上次确认存活以来，观察到"有输入但零回调"的心跳周期数
 	broken      bool // 上次重挂失败，当前无任何钩子，下个心跳无条件重试
+
+	// inputSinceAlive 累计"自上次确认钩子存活以来系统输入 tick 是否变化过"。
+	// 按周期清零会把滞后的 tick 变化当成新输入，从而反复误判掉线。
+	inputSinceAlive bool
 }
 
 func Paused() bool { return paused.Load() }
@@ -192,20 +202,22 @@ const (
 	actionRetry                  // 上次重挂失败、当前无钩子，无条件重试
 )
 
-// shouldReinstall 抽成纯函数便于单测：系统有新输入、钩子零回调、
-// 且已过冷却期，三个条件同时成立才重挂。
-func shouldReinstall(inputChanged, hookAlive bool, elapsed, gap time.Duration) bool {
-	return inputChanged && !hookAlive && elapsed >= gap
+// shouldReinstall 抽成纯函数便于单测：自上次确认存活以来系统确有输入、
+// 钩子连续静默超过 confirmedSilence、且已过冷却期，三者同时成立才重挂。
+// 单周期的 tick 变化与回调存在跨周期错位，不能单独当判据。
+func shouldReinstall(inputSeen, hookAlive bool, silence, elapsed, gap time.Duration) bool {
+	return inputSeen && !hookAlive && silence >= confirmedSilence && elapsed >= gap
 }
 
 // decideAction 是心跳的全部判定逻辑，不触碰任何 Win32 调用，便于离线单测。
 // first=首个心跳周期（只建基线）；ok=GetLastInputInfo 调用成功；
-// changed=系统最后输入 tick 变化；alive=本周期收到过钩子回调。
-func decideAction(first, ok, changed, alive, broken bool, elapsed, gap time.Duration) healthAction {
+// alive=本周期收到过钩子回调；inputSeen=自上次确认存活以来系统输入 tick 变化过；
+// silence=距上次确认钩子存活的时长。
+func decideAction(first, ok, alive, broken, inputSeen bool, elapsed, silence, gap time.Duration) healthAction {
 	if broken {
 		return actionRetry
 	}
-	if !ok || first || !shouldReinstall(changed, alive, elapsed, gap) {
+	if !ok || first || !shouldReinstall(inputSeen, alive, silence, elapsed, gap) {
 		return actionNone
 	}
 	return actionReinstall
@@ -220,14 +232,25 @@ func (h *Hook) Heartbeat() {
 	postThreadMsg.Call(uintptr(h.threadID), wmHeartbeat, 0, 0)
 }
 
+// observeHealth 把一次心跳的观测折算成状态变更，不触碰 Win32，便于离线单测。
+// inputSinceAlive 只在确认存活时重置：输入 tick 的变化常常晚于回调一个周期，
+// 按周期清零会把这份滞后输入反复当成新的掉线证据。
+func (h *Hook) observeHealth(now time.Time, alive, changed bool) {
+	if alive {
+		h.lastAlive = now
+		h.inputSinceAlive = false
+		h.suspects = 0
+		h.gap = reinstallMinGap
+	} else if changed {
+		h.inputSinceAlive = true
+		h.suspects++
+	}
+}
+
 // checkHealth 只在钩子线程执行。
 func (h *Hook) checkHealth() {
 	now := time.Now()
 	alive := seenFlag.Swap(0) != 0
-	if alive {
-		h.lastAlive = now
-		h.gap = reinstallMinGap // 确认钩子活着，退避复位
-	}
 
 	cur, ok := lastInputTick()
 	prev := h.lastTick
@@ -236,11 +259,13 @@ func (h *Hook) checkHealth() {
 	if ok {
 		h.tickInit = true // 首个周期只建立基线，避免启动瞬间误判
 	}
-	if ok && !first && cur != prev && !alive {
-		h.suspects++
-	}
+	changed := ok && !first && cur != prev
 
-	switch decideAction(first, ok, cur != prev, alive, h.broken, now.Sub(h.lastRecover), h.gap) {
+	h.observeHealth(now, alive, changed)
+
+	silence := now.Sub(h.lastAlive)
+	switch decideAction(first, ok, alive, h.broken, h.inputSinceAlive,
+		now.Sub(h.lastRecover), silence, h.gap) {
 	case actionRetry:
 		// 上次重挂失败导致当前完全没有钩子：无条件重试，不等输入、不过冷却。
 		// 否则一旦用户敲完一下就停下，tick 不再变化，钩子会永久丢失。
@@ -297,8 +322,13 @@ func (h *Hook) recordRecovery(now time.Time) {
 		At:     now,
 		GapSec: gapSec,
 		Total:  h.recoveries,
-		Reason: "input_without_callback",
+		Reason: "confirmed_silence", // 新版确认过的中断；旧版误报记录报告端不再计入
 	}
+	// 重挂本身不产生回调，若不重置观察窗口，下个心跳会因"仍无回调且
+	// 静默期已过"立刻再重挂一次，形成风暴。
+	h.lastAlive = now
+	h.inputSinceAlive = false
+	h.suspects = 0
 	if v := recoveryHandler.Load(); v != nil {
 		if fn, ok := v.(func(Recovery)); ok {
 			r := rec
