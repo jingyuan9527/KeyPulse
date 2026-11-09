@@ -3,6 +3,7 @@
 
 # 构建产物与临时文件
 *.exe
+*.exe~
 *.test
 *.out
 dist/
