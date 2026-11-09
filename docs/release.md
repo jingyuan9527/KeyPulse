@@ -38,7 +38,7 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 
 - [ ] `bash scripts/check-version.sh` 通过（VERSION 格式、CHANGELOG 条目、tag 未重复、文档无写死版本号）
 - [ ] `go test -buildvcs=false -count=1 ./...` 全 PASS
-- [ ] `node scripts/check-page.js .tmp/_selftest/report.html` 5 个路由 + 健康提示条全 PASS
+- [ ] `node scripts/check-page.js .tmp/_selftest/report.html` 单日 / 周报 / 总览等 10 项全 PASS
 - [ ] 两个 exe 的 `--version` 一致，且与 `VERSION` 文件一致
 - [ ] `keypulse.exe` PE subsystem = 2（无控制台），`keypulse-cli.exe` = 3（控制台）
 - [ ] `SHA256SUMS.txt` 与实际文件一致。Git Bash 下 `sha256sum -c SHA256SUMS.txt`；PowerShell 下 `Get-FileHash keypulse.exe -Algorithm SHA256` 逐项比对
@@ -67,6 +67,13 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 - 右键 → **实时模式** → 菜单项出现勾选、弹出静默气泡，数据目录多出 `live.js`；`live.js` 只含当天聚合计数，不含任何按键序列或文本。
 - 打开统计报告（离线）后继续敲键，今日卡片数字每秒跳动，页面**不整页重载**：不闪烁、滚动位置不丢、正在选的日期不被打断。
 - 切到周报 / 总览不报错，仍按 60 秒刷新；关闭开关后 `live.js` 被删除、页面回落为普通刷新，重启程序开关默认关闭。
+
+**本地看板额外验收**（仅当该版本包含此开关）：
+
+- 默认启动不勾选，行为与旧版一致；右键 → **本地看板（实时）** → 浏览器自动打开实时统计页。
+- 敲键时键盘热力图对应键位闪动，页面上方开关可暂停 / 恢复推送，今日数字每秒更新。
+- 看板开启时右键菜单不再显示「实时模式」；关闭看板后该项恢复，离线页原本勾选的实时模式状态不受影响。
+- 关闭全部看板页面 30 秒后服务自动停止；退出程序后不再占用回环地址。
 
 ## 5. Defender 误报处理
 
@@ -98,6 +105,8 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 - **滚轮**按事件计 1 格，不等于实际滚动行数。
 - **输入法组合过程**中的系统按键会被计入，与「实际打字数」不是一回事；今日速写的作品换算只是趣味粗估。
 - **界面**借用系统默认浏览器展示 HTML，不是原生窗口。
+- **本地看板是可选的实时页**：默认关闭，页面不落盘，关闭全部页面 30 秒后自动停止，之后无法再打开；需要长期留档请用「打开统计报告（离线）」。
+- **体积与内存**：引入标准库 `net/http` 后单 exe 约 6.3 MiB；勾选看板时常驻内存高于默认路径，不勾选时不启动本地服务。
 - **无开机自启**，每次开机需手动启动。
 
 ## 8. 升级与卸载
