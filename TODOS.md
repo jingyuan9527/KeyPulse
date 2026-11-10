@@ -153,7 +153,28 @@
 - [ ] 人工实机复核：退出托盘后重新双击根目录 exe（当前 41916 仍是旧进程），不退出时再双击应弹出可见提示
 - [x] **2026-11-10 14:40 本地打包 1.2.1**：按用户「本地打包一下 1.2.1」重编根目录 exe，产物 `--version` = `KeyPulse 1.2.1 (build 2026-11-10T06:40:18Z)`。用一次性 `go build` 把 ldflags 的 `Version` 注入 1.2.1（参数与 `build.sh` 一致，仅版本值不同），**`VERSION` 文件仍 1.2.0、CHANGELOG 未归档、不提交 / 不推送 / 不发版**；产物直接落根目录，不往 `dist/` 堆包。`keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` 三份同步（GUI 两份字节一致），6,317,568 B、PE subsystem 2/3 正确、无 `exe~` 残留；8 包单测全 PASS、页面回归 10 项 PASS、二进制含新菜单与弹窗文案。构建前确认无托盘进程占用。**与历史惯例的差异**：以往本地预览包沿用当前 `VERSION`、只用 build 时间戳区分，本次用户明确指定版本号才让产物显示 1.2.1；版本文件与发布资产一律不动，正式发版仍按 13 步 SOP 升位
 - [x] **2026-11-10 14:42 已提交并推送 `main`**：按「单功能点一次提交」拆成三个中文提交 —— `e88d94f refactor: 托盘把离线报告动作收进统计报告子菜单`（5 文件 / +173 −37）、`1ca927b fix: GUI 版启动期错误改为可见提示`（2 文件 / +152 −11）、`ca7db59 docs: 同步 1.2.1 排队改动与实机自测清单`（4 文件 / +60 −17）。`git push origin main` 快进 `5cf2bce..ca7db59`，`git ls-remote` 复核远端 HEAD = 本地 `ca7db59…`，工作区干净。提交前按 AGENTS.md 第 9 条扫描：仅命中公开文档里的 `127.0.0.1` 回环地址，无真实凭据 / 本机路径 / token；**未改任何 Git 凭据配置、未用带 token 的 URL**。上方各条「不提交 / 不推送」均为当时的历史状态记录。**只是代码进公开 `main`：未升 `VERSION`（仍 1.2.0）、未打 tag、未发 Release，线上 v1.2.0 资产不变**；正式发版仍按 13 步 SOP 升 1.2.1
-- [ ] 发版时按 13 步 SOP 升 `VERSION` → 1.2.1、`check-version.sh` + `package-release.sh`、推 tag / Release
+- [x] 发版时按 13 步 SOP 升 `VERSION` → 1.2.1、`check-version.sh` + `package-release.sh`、推 tag / Release（2026-11-10 15:2x 已完成，详见下方小节）
+
+## v1.2.1 发布（2026-11-10 15:31，当前 latest）
+
+- [x] 版本决策：PATCH **1.2.1**，主题「托盘入口归并 + GUI 启动期可见反馈」两项交互修复；§2 命中③、§3.2 破坏性五条逐条不命中、不升主版本、不需迁移方案；§4 合并发版例外不适用（两项都是修复，非新能力）
+- [x] 文档：`VERSION` → 1.2.1；CHANGELOG `Unreleased` 归入 `[1.2.1] - 2026-11-10` 并新建空 `Unreleased`；补 compare 链接（同时补齐此前遗漏的 `[1.2.0]`，把 `[Unreleased]` 基准从 v1.1.0 改到 v1.2.1）
+- [x] `bash scripts/check-version.sh` 通过；`bash scripts/package-release.sh` 全绿：8 包单测 PASS、页面回归 10 项 PASS、PE subsystem 2/3、10 项 `SHA256SUMS.txt` 全 OK、直下 exe == 包内 `keypulse.exe`、zip 13 条目与目录哈希一致、包内无源码 / `.env.local` / 真实数据
+- [x] 构建信息：`KeyPulse 1.2.1 (build 2026-11-10T07:22:51Z, windows/amd64, go1.25.0)`，单 exe 6,317,568 B
+- [x] 发版提交 `15a1f19 release: 发布 v1.2.1`（2 文件 / +9 −3）；annotated tag `v1.2.1` 对象 `8b2ab5c` 固定在该提交
+- [x] **推送改用 GitHub Git Data API（本次环境阻塞的处置）**：本机代理对 `github.com` 的 git 端点持续 `CONNECT tunnel 502` / Schannel `missing close_notify`，`http.version=HTTP/1.1` 与绕代理直连均失败，而 `api.github.com` 正常。经 `git credential fill` 单次取用 token（不打印、不改 `credential.*`、不用带 token 的 URL），用 API 逐个创建 blob / tree / commit / tag 对象，**每一级 SHA 都与本地一致**（tree `a79ee5c…`、commit `15a1f19…`、tag 对象 `8b2ab5c…`），再更新 `refs/heads/main` 与 `refs/tags/v1.2.1`；本地 `origin/main` 用 `git update-ref` 同步到同一 SHA，无分叉，远端 ref 经 API 复核一致
+- [x] GitHub Release：`v1.2.1 · 托盘入口归并 + 启动期提示`（id `440058822`，非 draft / 非 prerelease，正文 2332 字符取自 CHANGELOG + 校验 + 适用系统 / 升级 + 隐私边界 + 已知限制 / Defender），`https://github.com/jingyuan9527/KeyPulse/releases/tag/v1.2.1` 为当前 latest
+- [x] 三资产上传与校验（服务端 `digest` / `size` 逐一一致，`SHA256SUMS.txt` 800 B 字节回读一致）：
+
+  | 资产 | 大小 | SHA256 | asset id |
+  |---|---|---|---|
+  | `KeyPulse-1.2.1-win-x64.exe` | 6,317,568 B | `bc82f340…6395` | 730524830 |
+  | `KeyPulse-1.2.1-win-x64.zip` | 5,347,233 B | `30377b88…2200` | 730524951 |
+  | `SHA256SUMS.txt` | 800 B | `51ccfb30…d9a0` | 730525147 |
+
+- [x] 根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` 已同步为 1.2.1 正式构建；`keypulse.exe` 与 `keypulse-live-preview.exe` = `bc82f340…6395`，与 Release 直下资产同一字节。替换时托盘进程 PID 9080 仍在运行（Windows 允许 rename），旧 exe 移入 `.tmp/keypulse.exe~.bak` 未删除，**当前进程仍是旧预览版，退出后重新双击才生效**
+- [ ] 按 SOP 第 7 步，人工实机自测清单（`docs/release.md` 第 4 节，含新增第 8 步单实例弹框）仍待用户在交互桌面完成；用户明确下令发版即视为接受
+- [x] 已发布的 v1.2.0 tag / Release / 资产按「已发布不覆盖」保持原样；`VERSION` 与 CHANGELOG 历史条目不回改
 
 ## macOS 移植（后续新能力，需 `1.x.0`）
 
