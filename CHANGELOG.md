@@ -6,7 +6,11 @@
 
 ## [Unreleased]
 
-以下变更排队发布为 **1.2.1**（PATCH：交互修复与文档，不新增能力、不改 `.bin` 格式、口径、CLI 参数、CSV 表头或隐私边界）。线上 `v1.2.0` 不含这些变更，本次不改动任何已发布资产。
+暂无待发布变更。
+
+## [1.2.1] - 2026-11-10
+
+本次为 PATCH 版本，主题是两项交互修复：托盘入口归并、GUI 启动期错误可见化。均为用户可感知的体验问题修复，**不新增能力**，不改 `.bin` 格式、统计口径、CLI 参数、CSV 表头或隐私边界；覆盖 exe 即完成升级，历史数据无需迁移。已发布的 `v1.2.0` 资产按「已发布不覆盖」保持原样。
 
 ### 变更
 
@@ -117,7 +121,9 @@
 - 长按连发固定过滤，暂无设置开关；无组合键白名单计数、无开机自启。
 - 界面借用系统默认浏览器展示 HTML，不是原生窗口。
 
-[Unreleased]: https://github.com/jingyuan9527/KeyPulse/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/jingyuan9527/KeyPulse/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/jingyuan9527/KeyPulse/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/jingyuan9527/KeyPulse/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/jingyuan9527/KeyPulse/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/jingyuan9527/KeyPulse/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/jingyuan9527/KeyPulse/releases/tag/v1.0.0
