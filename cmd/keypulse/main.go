@@ -23,6 +23,66 @@ import (
 
 var singletonMutex uintptr
 
+// GUI 版由 -H=windowsgui 编译，进程没有控制台，fmt.Println 的输出会被直接
+// 丢弃：启动期错误与单实例冲突若只打印，用户双击后看到的就是「毫无反应」。
+// 这里在运行时判断 stdout 是否可见（控制台窗口或有效标准输出句柄）——
+// CLI 版照旧打印，GUI 版弹系统消息框。两份 exe 仍是同一份源码，构建脚本无需改动。
+const msgBoxFlags = 0x00000040 | 0x00010000 | 0x00040000 // MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST
+
+var (
+	k32 = syscall.NewLazyDLL("kernel32.dll")
+	u32 = syscall.NewLazyDLL("user32.dll")
+
+	procCreateMutexW     = k32.NewProc("CreateMutexW")
+	procGetConsoleWindow = k32.NewProc("GetConsoleWindow")
+	procGetStdHandle     = k32.NewProc("GetStdHandle")
+	procMessageBoxW      = u32.NewProc("MessageBoxW")
+
+	stdOutputHandle = ^uintptr(10) // DWORD(STD_OUTPUT_HANDLE) = -11
+	invalidHandle   = ^uintptr(0)  // INVALID_HANDLE_VALUE
+
+	// 四个间接层供单测替换，避免测试真的弹窗或依赖终端环境。
+	consoleWindow = func() uintptr {
+		h, _, _ := procGetConsoleWindow.Call()
+		return h
+	}
+	stdoutHandle = func() uintptr {
+		h, _, _ := procGetStdHandle.Call(stdOutputHandle)
+		return h
+	}
+	showDialog = func(title, text string) {
+		caption := syscall.StringToUTF16(title)
+		body := syscall.StringToUTF16(text)
+		// MessageBoxW(hWnd, lpText, lpCaption, uType)：正文在前、标题在后。
+		procMessageBoxW.Call(0,
+			uintptr(unsafe.Pointer(&body[0])),
+			uintptr(unsafe.Pointer(&caption[0])),
+			msgBoxFlags)
+	}
+	printLine = func(s string) { fmt.Println(s) }
+)
+
+// outputVisible 判断 stdout 能否真正被看见。不能只靠 GetConsoleWindow：
+// MSYS / mintty 这类终端没有 Windows 控制台窗口（返回 0），但 stdout 是有效
+// 管道句柄，CLI 版仍应照旧打印。只有两者都拿不到时（GUI 版由资源管理器
+// 双击启动），才需要弹系统消息框。
+func outputVisible() bool {
+	if consoleWindow() != 0 {
+		return true
+	}
+	h := stdoutHandle()
+	return h != 0 && h != invalidHandle
+}
+
+// notify 把用户必须看见的启动期消息送到当前进程真正可见的通道。
+func notify(title, text string) {
+	if outputVisible() {
+		printLine(title + "：" + text)
+		return
+	}
+	showDialog(title, text)
+}
+
 const (
 	reportKeepAlive = 10 * time.Minute // 打开报告后的自动更新保活窗口
 	reportRegenGap  = 30 * time.Second // 保活期内最快重生成间隔
@@ -84,10 +144,8 @@ func defaultDir() string {
 }
 
 func acquireSingleton() bool {
-	k32 := syscall.NewLazyDLL("kernel32.dll")
-	createMutex := k32.NewProc("CreateMutexW")
 	name := syscall.StringToUTF16(`Local\KeyPulseSingleton`)
-	h, _, e := createMutex.Call(0, 1, uintptr(unsafe.Pointer(&name[0])))
+	h, _, e := procCreateMutexW.Call(0, 1, uintptr(unsafe.Pointer(&name[0])))
 	if h == 0 {
 		return false
 	}
@@ -262,7 +320,8 @@ func main() {
 	}
 
 	if !acquireSingleton() {
-		fmt.Println("KeyPulse 已在运行（单实例保护）。")
+		notify("KeyPulse 已在运行（单实例保护）",
+			"程序只允许一个实例。请在任务栏托盘（可能被折叠在「^ 显示隐藏图标」里）右键选择「退出」，然后重新启动。")
 		return
 	}
 	hook.SetBelowNormalPriority()
@@ -270,7 +329,7 @@ func main() {
 	c := counter.New()
 	st, err := store.Open(*dir, c)
 	if err != nil {
-		fmt.Println("打开数据目录失败:", err)
+		notify("打开数据目录失败", err.Error())
 		return
 	}
 	store.Cleanup(*dir, *keep)
@@ -295,7 +354,7 @@ func main() {
 
 	h, err := hook.Install(c)
 	if err != nil {
-		fmt.Println(err)
+		notify("采集钩子安装失败", err.Error())
 		st.Close()
 		return
 	}
@@ -360,7 +419,7 @@ func main() {
 			return on
 		},
 	}); err != nil {
-		fmt.Println("托盘初始化失败:", err)
+		notify("托盘初始化失败", err.Error())
 		h.Uninstall()
 		st.Close()
 		return
