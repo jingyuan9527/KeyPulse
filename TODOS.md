@@ -152,6 +152,7 @@
 - [x] 验证：`gofmt` 干净；`go test ./...` 8 包全 PASS；页面回归 10 项 PASS；`bash build.sh .tmp/_check/bin` 后同步根目录三个 exe（`1.2.0 build 2026-11-10T06:33:23Z`，6,317,568 B），PE subsystem 2/3 正确、字节一致、无 `exe~` 残留
 - [ ] 人工实机复核：退出托盘后重新双击根目录 exe（当前 41916 仍是旧进程），不退出时再双击应弹出可见提示
 - [x] **2026-11-10 14:40 本地打包 1.2.1**：按用户「本地打包一下 1.2.1」重编根目录 exe，产物 `--version` = `KeyPulse 1.2.1 (build 2026-11-10T06:40:18Z)`。用一次性 `go build` 把 ldflags 的 `Version` 注入 1.2.1（参数与 `build.sh` 一致，仅版本值不同），**`VERSION` 文件仍 1.2.0、CHANGELOG 未归档、不提交 / 不推送 / 不发版**；产物直接落根目录，不往 `dist/` 堆包。`keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` 三份同步（GUI 两份字节一致），6,317,568 B、PE subsystem 2/3 正确、无 `exe~` 残留；8 包单测全 PASS、页面回归 10 项 PASS、二进制含新菜单与弹窗文案。构建前确认无托盘进程占用。**与历史惯例的差异**：以往本地预览包沿用当前 `VERSION`、只用 build 时间戳区分，本次用户明确指定版本号才让产物显示 1.2.1；版本文件与发布资产一律不动，正式发版仍按 13 步 SOP 升位
+- [x] **2026-11-10 14:42 已提交并推送 `main`**：按「单功能点一次提交」拆成三个中文提交 —— `e88d94f refactor: 托盘把离线报告动作收进统计报告子菜单`（5 文件 / +173 −37）、`1ca927b fix: GUI 版启动期错误改为可见提示`（2 文件 / +152 −11）、`ca7db59 docs: 同步 1.2.1 排队改动与实机自测清单`（4 文件 / +60 −17）。`git push origin main` 快进 `5cf2bce..ca7db59`，`git ls-remote` 复核远端 HEAD = 本地 `ca7db59…`，工作区干净。提交前按 AGENTS.md 第 9 条扫描：仅命中公开文档里的 `127.0.0.1` 回环地址，无真实凭据 / 本机路径 / token；**未改任何 Git 凭据配置、未用带 token 的 URL**。上方各条「不提交 / 不推送」均为当时的历史状态记录。**只是代码进公开 `main`：未升 `VERSION`（仍 1.2.0）、未打 tag、未发 Release，线上 v1.2.0 资产不变**；正式发版仍按 13 步 SOP 升 1.2.1
 - [ ] 发版时按 13 步 SOP 升 `VERSION` → 1.2.1、`check-version.sh` + `package-release.sh`、推 tag / Release
 
 ## macOS 移植（后续新能力，需 `1.x.0`）
