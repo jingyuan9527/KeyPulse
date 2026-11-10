@@ -98,7 +98,7 @@ func startBoard(dir string, st *store.Store, c *counter.Counter) {
 	boardSrv = srv
 	tray.OpenURL(srv.URL())
 	tray.Notify("本地看板已启动",
-		"仅绑定 127.0.0.1 回环；实时推送开关在页面上方，托盘「实时模式」此时隐藏。页面不落盘，关闭全部页面 30 秒后自动停止。")
+		"仅绑定 127.0.0.1 回环；实时推送开关在页面上方，托盘「统计报告」子菜单此时不再显示重复的实时开关。页面不落盘，关闭全部页面 30 秒后自动停止。")
 }
 
 func stopBoard(dir string) {

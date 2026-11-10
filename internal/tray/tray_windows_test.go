@@ -166,30 +166,127 @@ func TestNotifyFlags(t *testing.T) {
 	}
 }
 
-// 看板页面内已有实时推送开关，托盘不该再摆一个看起来重复的「实时模式」。
-func TestMenuItemsHideLiveWhenBoardOn(t *testing.T) {
+// 离线报告的两个动作收进一个子菜单，顶层不再并排出现两个「实时」勾选
+// 项；命令 ID 全部保留，TrackPopupMenu 仍会返回子菜单里被点中的那个 ID。
+func TestMenuItemsGroupReportActionsInSubmenu(t *testing.T) {
 	base := menuItems(false, false, false)
-	if !hasMenuID(base, idLive) {
-		t.Fatal("看板关闭时托盘应显示「实时模式」")
+	if got := len(base); got != 6 {
+		t.Fatalf("顶层菜单项数 = %d，期望 6", got)
 	}
+	var group *menuEntry
+	for i := range base {
+		if len(base[i].children) > 0 {
+			group = &base[i]
+			break
+		}
+	}
+	if group == nil {
+		t.Fatal("缺少「统计报告」子菜单")
+	}
+	if group.flags&mfPopup == 0 || group.text != "统计报告" {
+		t.Errorf("子菜单容器标志或文案错误: flags=%#x text=%q", group.flags, group.text)
+	}
+	if mfPopup != 0x10 {
+		t.Errorf("MF_POPUP 常量错误: %#x", mfPopup)
+	}
+	// 两个报告动作必须在子菜单里，顶层不得再平铺。
+	for _, id := range []uintptr{idOpen, idLive} {
+		if hasMenuID(base, id) {
+			t.Errorf("顶层不应直接出现 id=%d", id)
+		}
+		if !hasMenuID(group.children, id) {
+			t.Errorf("子菜单缺少 id=%d", id)
+		}
+	}
+	if got := menuText(group.children, idOpen); got != "打开（离线快照）" {
+		t.Errorf("打开报告菜单项未与实时看板区分: %q", got)
+	}
+	if got := menuText(group.children, idLive); got != "实时刷新" {
+		t.Errorf("实时菜单项未收敛为「实时刷新」: %q", got)
+	}
+	// 看板开启时子菜单里也不再摆重复的实时开关，但打开报告仍可达。
 	withBoard := menuItems(false, false, true)
-	if hasMenuID(withBoard, idLive) {
-		t.Error("看板开启时托盘不应再显示「实时模式」")
+	if hasMenuID(flatten(withBoard), idLive) {
+		t.Error("看板开启时不应再显示「实时刷新」")
 	}
-	for _, id := range []uintptr{idOpen, idBoard, idExport, idQuit} {
+	if !hasMenuID(flatten(withBoard), idOpen) {
+		t.Error("看板开启时仍应能打开离线报告")
+	}
+	for _, id := range []uintptr{idBoard, idPause, idExport, idQuit} {
 		if !hasMenuID(withBoard, id) {
-			t.Errorf("看板开启时菜单缺少 id=%d", id)
+			t.Errorf("顶层菜单缺少 id=%d", id)
 		}
 	}
 	if !menuChecked(withBoard, idBoard) {
 		t.Error("看板开启时「本地看板」未显示勾选态")
 	}
-	if !menuChecked(menuItems(false, true, false), idLive) {
-		t.Error("静态实时模式开启时菜单项未显示勾选态")
+	if !menuChecked(flatten(menuItems(false, true, false)), idLive) {
+		t.Error("静态实时模式开启时子菜单项未显示勾选态")
 	}
-	if got := menuText(base, idOpen); got != "打开统计报告（离线）" {
-		t.Errorf("打开报告菜单项未与实时看板区分: %q", got)
+	// 暂停态文案与 mfChecked 组合不随层级改动退化。
+	paused := menuItems(true, false, false)
+	if got := menuText(paused, idPause); got != "恢复采集" {
+		t.Errorf("暂停态菜单文案错误: %q", got)
 	}
+}
+
+// MF_POPUP 的 ABI 陷阱：AppendMenuW 第三参必须传子菜单句柄而非命令 ID。
+// 这里建真实 Win32 菜单再回读，避免纯函数测试漏掉句柄传错。
+func TestBuildMenuSubmenuABI(t *testing.T) {
+	menu := buildMenu(menuItems(false, false, false))
+	if menu == 0 {
+		t.Fatal("创建 popup 菜单失败")
+	}
+	defer destroyMenu.Call(menu)
+
+	sub, _, _ := getSubMenu.Call(menu, 0)
+	if sub == 0 {
+		t.Fatal("顶层第 0 项不是子菜单（MF_POPUP 未生效）")
+	}
+	if count, _, _ := getMenuItemCount.Call(sub); count != 2 {
+		t.Fatalf("子菜单项数 = %d，期望 2", count)
+	}
+	for i, want := range []uintptr{idOpen, idLive} {
+		got, _, _ := getMenuItemID.Call(sub, uintptr(i))
+		if got != want {
+			t.Errorf("子菜单第 %d 项 ID = %d，期望 %d", i, got, want)
+		}
+	}
+	for i, want := range map[int]uintptr{1: idPause, 2: idBoard, 3: idExport, 5: idQuit} {
+		got, _, _ := getMenuItemID.Call(menu, uintptr(i))
+		if got != want {
+			t.Errorf("顶层第 %d 项 ID = %d，期望 %d", i, got, want)
+		}
+	}
+
+	// 看板开启时子菜单只剩「打开（离线快照）」，实时项确实被摘掉。
+	menu2 := buildMenu(menuItems(false, false, true))
+	if menu2 == 0 {
+		t.Fatal("创建第二份 popup 菜单失败")
+	}
+	defer destroyMenu.Call(menu2)
+	sub2, _, _ := getSubMenu.Call(menu2, 0)
+	if sub2 == 0 {
+		t.Fatal("看板开启时顶层第 0 项不是子菜单")
+	}
+	if count, _, _ := getMenuItemCount.Call(sub2); count != 1 {
+		t.Fatalf("看板开启时子菜单项数 = %d，期望 1", count)
+	}
+	if got, _, _ := getMenuItemID.Call(sub2, 0); got != idOpen {
+		t.Errorf("看板开启时子菜单首项 ID = %d，期望 %d", got, idOpen)
+	}
+}
+
+// flatten 把顶层与子菜单展开成一层，供按命令 ID 查找断言使用。
+func flatten(items []menuEntry) []menuEntry {
+	var out []menuEntry
+	for _, it := range items {
+		out = append(out, it)
+		if len(it.children) > 0 {
+			out = append(out, flatten(it.children)...)
+		}
+	}
+	return out
 }
 
 func hasMenuID(items []menuEntry, id uintptr) bool {

@@ -34,6 +34,7 @@ const (
 	idiApplication = 32512
 	mfString       = 0x0000
 	mfChecked      = 0x0008 // MF_CHECKED：实时菜单项的勾选标记
+	mfPopup        = 0x0010 // MF_POPUP：第三参是子菜单句柄而非命令 ID
 	mfSeparator    = 0x0800
 	tpmReturnCmd   = 0x0100
 	tpmRightButton = 0x0002
@@ -62,6 +63,9 @@ var (
 	appendMenu       = user32.NewProc("AppendMenuW")
 	trackPopupMenu   = user32.NewProc("TrackPopupMenu")
 	destroyMenu      = user32.NewProc("DestroyMenu")
+	getSubMenu       = user32.NewProc("GetSubMenu")
+	getMenuItemID    = user32.NewProc("GetMenuItemID")
+	getMenuItemCount = user32.NewProc("GetMenuItemCount")
 	getCursorPos     = user32.NewProc("GetCursorPos")
 	setForegroundWin = user32.NewProc("SetForegroundWindow")
 	postQuitMsg      = user32.NewProc("PostQuitMessage")
@@ -217,14 +221,23 @@ func addMenuItem(menu uintptr, flags, id uintptr, text string) {
 	appendMenu.Call(menu, flags, id, uintptr(unsafe.Pointer(&buf[0])))
 }
 
-type menuEntry struct {
-	flags uintptr
-	id    uintptr
-	text  string
+// addSubMenu 把子菜单挂到父项上。父菜单销毁时系统级联释放子菜单，
+// 这里不能再单独 DestroyMenu(sub)，否则会重复释放句柄。
+func addSubMenu(menu, sub uintptr, text string) {
+	buf := syscall.StringToUTF16(text)
+	appendMenu.Call(menu, mfPopup, sub, uintptr(unsafe.Pointer(&buf[0])))
 }
 
-// menuItems 每次右键时按当前状态现算菜单。看板页内已有实时推送开关，
-// 托盘再摆一个「实时模式」会被误认成两个功能，故看板开启时隐藏它。
+type menuEntry struct {
+	flags    uintptr
+	id       uintptr
+	text     string
+	children []menuEntry // 非空表示该项是子菜单容器（flags 含 mfPopup）
+}
+
+// menuItems 每次右键时按当前状态现算菜单。离线报告的两个动作收进同一个
+// 子菜单：顶层只留一个「实时」勾选项，用户不必先判断该勾哪个。看板页内
+// 已有推送开关，故看板开启时子菜单里也不再摆「实时刷新」。
 func menuItems(paused, liveOn, boardOn bool) []menuEntry {
 	pauseText := "暂停采集"
 	if paused {
@@ -238,28 +251,52 @@ func menuItems(paused, liveOn, boardOn bool) []menuEntry {
 	if boardOn {
 		boardFlags |= mfChecked
 	}
-	items := []menuEntry{
-		{mfString, idOpen, "打开统计报告（离线）"},
-		{mfString, idPause, pauseText},
+	report := []menuEntry{
+		{mfString, idOpen, "打开（离线快照）", nil},
 	}
 	if !boardOn {
-		items = append(items, menuEntry{liveFlags, idLive, "实时模式"})
+		report = append(report, menuEntry{liveFlags, idLive, "实时刷新", nil})
 	}
-	return append(items,
-		menuEntry{boardFlags, idBoard, "本地看板（实时）"},
-		menuEntry{mfString, idExport, "导出 CSV"},
-		menuEntry{mfSeparator, 0, ""},
-		menuEntry{mfString, idQuit, "退出"},
-	)
+	return []menuEntry{
+		{mfPopup, 0, "统计报告", report},
+		{mfString, idPause, pauseText, nil},
+		{boardFlags, idBoard, "本地看板（实时）", nil},
+		{mfString, idExport, "导出 CSV", nil},
+		{mfSeparator, 0, "", nil},
+		{mfString, idQuit, "退出", nil},
+	}
+}
+
+// buildMenu 把 menuItems 的层级挂到真实 Win32 popup 菜单上。抽成函数是为了
+// 让单测能直接用 GetSubMenu / GetMenuItemID 校验 MF_POPUP 的 ABI，无需托盘。
+// 返回的父菜单由调用方 DestroyMenu；插入后子菜单归父菜单所有，级联释放。
+func buildMenu(items []menuEntry) uintptr {
+	menu, _, _ := createPopupMenu.Call()
+	if menu == 0 {
+		return 0
+	}
+	for _, it := range items {
+		if len(it.children) == 0 {
+			addMenuItem(menu, it.flags, it.id, it.text)
+			continue
+		}
+		sub, _, _ := createPopupMenu.Call()
+		if sub == 0 {
+			// 子菜单创建失败时退回平铺，保证报告动作始终可达。
+			for _, c := range it.children {
+				addMenuItem(menu, c.flags, c.id, c.text)
+			}
+			continue
+		}
+		for _, c := range it.children {
+			addMenuItem(sub, c.flags, c.id, c.text)
+		}
+		addSubMenu(menu, sub, it.text)
+	}
+	return menu
 }
 
 func showMenu() {
-	menu, _, _ := createPopupMenu.Call()
-	if menu == 0 {
-		return
-	}
-	defer destroyMenu.Call(menu)
-
 	p, liveOn, boardOn := false, false, false
 	if cfg.Paused != nil {
 		p = cfg.Paused()
@@ -270,9 +307,11 @@ func showMenu() {
 	if cfg.Board != nil {
 		boardOn = cfg.Board()
 	}
-	for _, it := range menuItems(p, liveOn, boardOn) {
-		addMenuItem(menu, it.flags, it.id, it.text)
+	menu := buildMenu(menuItems(p, liveOn, boardOn))
+	if menu == 0 {
+		return
 	}
+	defer destroyMenu.Call(menu)
 
 	var pt point
 	getCursorPos.Call(uintptr(unsafe.Pointer(&pt)))

@@ -307,7 +307,7 @@ function pollLive(){
   if(s.parentNode)s.parentNode.removeChild(s);
   if(ev&&ev.type==='error'){
    liveErr++;
-   if(liveErr>=5)liveHint('实时数据未更新，请重新点击托盘「打开统计报告（离线）」');
+   if(liveErr>=5)liveHint('实时数据未更新，请重新点击托盘「统计报告 → 打开（离线快照）」');
    return;
   }
   liveErr=0;
@@ -357,7 +357,7 @@ if(SERVER){
  startSSE();
  setInterval(refreshNonToday,60000);
 }else if(LIVE){
- liveHint('实时模式已开启：本页每秒从数据目录读取 live.js 更新今日视图，仍不联网、不暴露隐私；关闭托盘里的「实时模式」可恢复空闲零写入。');
+ liveHint('实时模式已开启：本页每秒从数据目录读取 live.js 更新今日视图，仍不联网、不暴露隐私；关闭托盘「统计报告 → 实时刷新」可恢复空闲零写入。');
  pollLive();
  setInterval(pollLive,1000);
  setInterval(refreshNonToday,60000);
