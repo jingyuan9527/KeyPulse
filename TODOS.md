@@ -103,7 +103,7 @@
 
 - [x] **2026-11-09 14:20 已提交并推送 `main`**：按「单功能点一次提交」拆成两个中文提交 —— `7d362ed feat: 新增本地看板（实时）可选能力`（14 文件 / +1260 −51）与 `5c3af04 docs: 收敛隐私承诺表述并同步公开文档与台账`（6 文件 / +47 −17）；`git push origin main` 快进 `ded855e..5c3af04`，`git ls-remote` 复核远端 HEAD 与本地一致，工作区干净。提交前按 AGENTS.md 第 9 条扫描暂存区无敏感信息；**未改任何 Git 凭据配置、未用带 token 的 URL**。上方各条「未提交 / 未推送」均为当时的历史状态记录。**只是代码进公开 `main`：未升 `VERSION`、未打 tag、未发 Release，线上 v1.1.0 资产不变**；正式发版仍按 13 步 SOP 升 `1.2.0`
 
-- [x] **2026-11-09 14:22 收敛三个入口的托盘呈现**：按用户「有了本地看板，另外两个还需要吗」的讨论结论，**保留全部能力、只收敛交互**。`tray` 新增 `menuItems()` 纯函数按状态现算菜单，看板开启时隐藏「实时模式」（页面内已有同一开关）、关闭后恢复；「打开统计报告」改名「打开统计报告（离线）」，区分可保存的单文件 HTML 与不落盘的看板页；`boardLive` 与 `liveMode` 拆成两个独立状态，修掉看板启停强制清掉静态实时勾选的耦合，两条通道并行时 `live.js` 继续写，避免离线页挂「数据未更新」提示。新增 `TestMenuItemsHideLiveWhenBoardOn` 单测；README / CHANGELOG Unreleased / `docs/release.md` / 报告页脚与提示文案同步。**不删 v1.1.0 已发布的实时模式**（按 §3.2 第 3 条删除已公开能力会撞 MAJOR，与 1.2.0 冲突）；「打开统计报告」也保留——看板不落盘、关页 30 秒即失效，且默认状态下不能要求用户先起服务才有报告可看
+- [x] **2026-11-09 14:22 收敛三个入口的托盘呈现**：按用户「有了本地看板，另外两个还需要吗」的讨论结论，**保留全部能力、只收敛交互**。`tray` 新增 `menuItems()` 纯函数按状态现算菜单，看板开启时隐藏「实时模式」（页面内已有同一开关）、关闭后恢复；「打开统计报告」改名「打开统计报告（离线）」，区分可保存的单文件 HTML 与不落盘的看板页；`boardLive` 与 `liveMode` 拆成两个独立状态，修掉看板启停强制清掉静态实时勾选的耦合，两条通道并行时 `live.js` 继续写，避免离线页挂「数据未更新」提示。新增 `TestMenuItemsHideLiveWhenBoardOn` 单测；README / CHANGELOG Unreleased / `docs/release.md` / 报告页脚与提示文案同步。**不删 v1.1.0 已发布的实时模式**（当时括注写「按 §3.2 第 3 条删除已公开能力会撞 MAJOR」，2026-11-10 核对原文后纠正：该条只管 CLI 参数与 CSV 列名，**不含 UI 菜单项**；不删的真实理由是产品层面不该在 MINOR 里移除用户可见能力，且会丢掉唯一零端口 / 零服务的轻量实时档）；「打开统计报告」也保留——看板不落盘、关页 30 秒即失效，且默认状态下不能要求用户先起服务才有报告可看
 
 - [x] **2026-11-09 14:48 已提交并推送 `main`**：入口收敛按「单功能点一次提交」拆成两个中文提交 —— `cc9dda7 refactor: 收敛托盘菜单并拆分看板与离线实时状态`（6 文件 / +135 −47）与 `b4aa88a docs: 同步三个报告入口说明并忽略 exe 备份文件`（5 文件 / +12 −5）；14:45 用户退出托盘后做了一次无占用干净重编（`1.1.0 (build 2026-11-09T06:45:49Z)`，6,315,008 B，无 `exe~` 残留）。`git push origin main` 快进 `118accb..b4aa88a`，`git ls-remote` 复核远端 HEAD = 本地 `b4aa88a…`，工作区干净。提交前按 AGENTS.md 第 9 条扫描：仅命中公开文档里的 `127.0.0.1` 回环地址，无真实凭据 / 本机路径 / token；**未改任何 Git 凭据配置、未用带 token 的 URL**。**仍是未升 `VERSION`（1.1.0）、未打 tag、未发 Release**，线上 v1.1.0 资产不变；正式发版按 13 步 SOP 升 `1.2.0`
 
@@ -126,7 +126,33 @@
 - [x] 回读：`SHA256SUMS.txt` 经 API 资产端点（302 → CDN）字节回读 800 B、哈希一致；两个大文件的 CDN 直链在本机代理下 40 秒内只传到约 0.7 MB 即超时（已知 Schannel / 代理坑），**以服务端 `digest` 三项一致作为权威校验**，未强求大文件回读。`GET /releases/latest` 复核 `tag=v1.2.0`、`draft=false`、`prerelease=false`、3 个资产齐全
 - [x] 本机根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` / `preview.html` 已同步为 1.2.0 正式构建；根目录 exe 的 SHA256 = `c0323f99…6533`，与发布包及 Release 直下资产同一字节。替换时托盘进程 PID 15344 仍在运行（Windows 允许 rename 运行中的 exe），**当前进程仍是旧版，重启托盘后生效**，未擅自结束用户进程
 - [ ] 按 SOP 第 7 步，人工实机自测清单（`docs/release.md` 第 4 节，含本地看板 4 条）仍待用户在交互桌面完成；这是本次发布唯一未由工具覆盖的验收项
-- [ ] 下一个 PATCH 若需要发 **1.2.1**；其余新能力（macOS 移植等）另发 `1.x.0` 并排队，不得塞进 PATCH
+- [x] 下一个 PATCH 定为 **1.2.1**（2026-11-10 用户拍板「加吧 排1.2.1」）：排队「托盘入口归并」+「GUI 启动期可见反馈」两项交互修复。本轮不改 `VERSION`（仍 1.2.0）、不提交 / 不推送 / 不发版，发版时按 13 步 SOP 升位。其余新能力（macOS 移植等）另发 `1.x.0` 并排队，不得塞进 PATCH
+
+## 托盘入口归并（2026-11-10，未发布）
+
+用户反馈「几个入口有重复、能不能合并」。核对 `docs/versioning.md` §3.2 原文后纠正 11-09 的过度解读：五条 MAJOR 白名单不含 UI 菜单项，第 3 条只限 CLI 参数与 CSV 列名；但删除 v1.1.0 已发布的「实时模式」仍是产品层面的能力移除，且会丢掉唯一「零端口、零服务、只多写 1–3 KB `live.js`」的轻量实时档。按用户选定 **B 子菜单归并** 落地，**不砍任何能力**。
+
+- [x] `internal/tray/tray_windows.go`：新增 `mfPopup` / `addSubMenu` / `buildMenu`，把「打开（离线快照）」「实时刷新」收进「统计报告」子菜单；顶层只留「本地看板（实时）」一个实时勾选项。命令 ID 全部保留，看板开启时子菜单仍隐藏「实时刷新」；子菜单创建失败时退回平铺，保证动作可达。双击托盘仍直接开报告
+- [x] 单测：新增 `TestMenuItemsGroupReportActionsInSubmenu`（层级 / 文案 / 勾选态 / 看板态）与 `TestBuildMenuSubmenuABI`（真调 Win32 `GetSubMenu` / `GetMenuItemID` / `GetMenuItemCount`，校验 `MF_POPUP` 句柄与子菜单命令 ID 未丢失）；移除旧 `TestMenuItemsHideLiveWhenBoardOn`
+- [x] 文案同步：报告页脚、live 提示、看板启动气泡、README 日常表与三入口段、CHANGELOG `Unreleased`、`docs/release.md` 自测清单；已发布的 1.2.0 CHANGELOG 条目与 Release 资产按「不覆盖」保持原样
+- [x] 验证：`gofmt` 干净；`go test -buildvcs=false -count=1 ./...` 8 包全 PASS；页面回归 10 项 PASS；`bash build.sh .` 直接重编根目录 exe（`1.2.0 build 2026-11-10T06:14:12Z`），二进制含新菜单文案；清掉 `keypulse.exe~` 构建残留
+- [ ] 人工实机复核：退出当前托盘（PID 18764）后重新双击根目录 exe，右键确认「统计报告 ▸」能展开、两个子项可点开且勾选生效、看板开启时子菜单只剩「打开（离线快照）」、关闭后恢复
+- [x] 边界：不改 `VERSION`（仍 1.2.0）、不覆盖任何已发布资产、未提交 / 未推送 / 未发版
+
+## 1.2.1 排队：GUI 启动期可见反馈（2026-11-10，未发布）
+
+用户 14:25 拍板「加吧 排1.2.1」。起因是 14:23 用户双击根目录 exe「启动不了」：残留旧实例持有 `Local\KeyPulseSingleton`，`acquireSingleton()` 失败时只 `fmt.Println`，而 GUI 版由 `-H=windowsgui` 编译、没有控制台 → 表现为静默退出。本轮只落地代码与文档，**不改 `VERSION`、不提交 / 推送 / 发版**；与同处未发布分支的「托盘入口归并」一起按 PATCH 发布（两项都是交互修复，非新能力，§4 合并发版例外不适用）。
+
+- [x] `cmd/keypulse/main.go`：新增 `notify(title, text)` 与 `outputVisible()`；GUI 版弹 `MessageBoxW`（MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST），CLI 版照旧打印。`CreateMutexW` 提为包级 proc 复用
+- [x] 4 处启动期静默输出统一接 `notify`：单实例冲突、数据目录打开失败、钩子安装失败、托盘初始化失败；单实例提示明确告知去托盘右键「退出」（图标常被折叠进「^」）
+- [x] **判据修正（实测发现）**：初版只用 `GetConsoleWindow`，但本机 Git Bash / mintty 下它返回 0、stdout 却是有效管道句柄（712）→ CLI 版被误判去弹框并阻塞（`timeout` 退出码 124）。改为「控制台窗口 ≠ 0 **或** `GetStdHandle(STD_OUTPUT_HANDLE)` 有效」才打印，两者皆无才弹框。零构建脚本改动，两份 exe 仍是同一份源码
+- [x] `cmd/keypulse/main_test.go`：新增 5 条单测（有控制台 / 仅 stdout 有效 / 两者皆无 / stdout 为 INVALID_HANDLE_VALUE / 四个 Win32 导出名可解析），用可替换间接层避免真弹窗与依赖终端环境
+- [x] **真实弹窗验证**：Python `DETACHED_PROCESS` 启动 GUI 版触发单实例冲突，同脚本用 `EnumWindows` 枚举到 `class=#32770`、`title=KeyPulse 已在运行（单实例保护）`、进程 `poll=None`（弹框阻塞中），确认 `MessageBoxW` 正文 / 标题参数顺序正确；随后精确结束验证进程，用户实例 41916 未受影响。CLI 版同场景打印原因并 `exit=0`
+- [x] 文档：CHANGELOG `Unreleased` 加「修复」节并注明排队 1.2.1；README 新增「双击没反应」；`docs/release.md` 发布前检查 +1 条、实机自测插入第 8 步并重编号
+- [x] 验证：`gofmt` 干净；`go test ./...` 8 包全 PASS；页面回归 10 项 PASS；`bash build.sh .tmp/_check/bin` 后同步根目录三个 exe（`1.2.0 build 2026-11-10T06:33:23Z`，6,317,568 B），PE subsystem 2/3 正确、字节一致、无 `exe~` 残留
+- [ ] 人工实机复核：退出托盘后重新双击根目录 exe（当前 41916 仍是旧进程），不退出时再双击应弹出可见提示
+- [x] **2026-11-10 14:40 本地打包 1.2.1**：按用户「本地打包一下 1.2.1」重编根目录 exe，产物 `--version` = `KeyPulse 1.2.1 (build 2026-11-10T06:40:18Z)`。用一次性 `go build` 把 ldflags 的 `Version` 注入 1.2.1（参数与 `build.sh` 一致，仅版本值不同），**`VERSION` 文件仍 1.2.0、CHANGELOG 未归档、不提交 / 不推送 / 不发版**；产物直接落根目录，不往 `dist/` 堆包。`keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` 三份同步（GUI 两份字节一致），6,317,568 B、PE subsystem 2/3 正确、无 `exe~` 残留；8 包单测全 PASS、页面回归 10 项 PASS、二进制含新菜单与弹窗文案。构建前确认无托盘进程占用。**与历史惯例的差异**：以往本地预览包沿用当前 `VERSION`、只用 build 时间戳区分，本次用户明确指定版本号才让产物显示 1.2.1；版本文件与发布资产一律不动，正式发版仍按 13 步 SOP 升位
+- [ ] 发版时按 13 步 SOP 升 `VERSION` → 1.2.1、`check-version.sh` + `package-release.sh`、推 tag / Release
 
 ## macOS 移植（后续新能力，需 `1.x.0`）
 
