@@ -176,7 +176,7 @@
 - [ ] 按 SOP 第 7 步，人工实机自测清单（`docs/release.md` 第 4 节，含新增第 8 步单实例弹框）仍待用户在交互桌面完成；用户明确下令发版即视为接受
 - [x] 已发布的 v1.2.0 tag / Release / 资产按「已发布不覆盖」保持原样；`VERSION` 与 CHANGELOG 历史条目不回改
 
-## v1.2.2 录制前赶工三项（2026-11-11，已打包未提交）
+## v1.2.2 录制前赶工三项（2026-11-11，已发布）
 
 需求单三项合并 PATCH `1.2.2`；不改默认用户路径、不新增依赖、不加采集 / 联网行为。
 
@@ -186,7 +186,9 @@
 - [x] 文档同步：README（快速开始、演示角标、落盘清单加 `.welcomed`、命令行参数）、CHANGELOG `[1.2.2]` 条目 + compare 链接、`docs/release.md`（11 项页面回归、示例报告角标说明、自测清单新增第 12 / 13 步欢迎气泡与 GUI `--dir` 验收）
 - [x] `VERSION` → 1.2.2；`bash scripts/check-version.sh`（Git Bash）通过；`go test -buildvcs=false -count=1 ./...` 8 包全 PASS；`package-release.sh` 全绿：11 项页面回归 PASS、10 项 `SHA256SUMS.txt` OK、PE subsystem 2/3、`KeyPulse 1.2.2 (build 2026-11-11T09:28:29Z)`，单 exe 6,320,640 B
 - [x] 产物：`dist/KeyPulse-1.2.2/`（10 项清单）、`dist/KeyPulse-1.2.2-win-x64.zip`（5,351,335 B）、`dist/KeyPulse-1.2.2-win-x64.exe`；根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` / `preview.html` 已同步为 1.2.2 正式构建，根目录 exe SHA256 = `065a3e68…658a` 与直下资产同字节。上传资产 SHA256：exe `065a3e68…658a`、zip `b6003899…023e`、SUMS `44e48862…eb8`
-- [ ] 未提交 / 未打 tag / 未发 Release（按惯例待用户确认后按 13 步 SOP 执行）；人工实机自测清单第 12 / 13 步（欢迎气泡、GUI `--dir`）待用户在交互桌面完成
+- [x] **2026-11-11 已提交并推送 `main` + 发版**：按「单功能点一次提交」拆成四个中文提交 —— `de25737 feat: selftest 报告增加演示数据角标`（5 文件 / +115 −4）、`1c9658f feat: GUI 首次成功启动弹欢迎气泡`（2 文件 / +63）、`e1706cb docs: 同步演示角标、欢迎气泡与 GUI --dir 说明`（3 文件 / +28 −9）、`00a5ccf release: 发布 v1.2.2`（2 文件 / +17 −2）；annotated tag `v1.2.2` 固定在 `00a5ccf`。本次 git push 正常（代理恢复），未改任何 `credential.*`、未用带 token 的 URL。提交前按 AGENTS.md 第 9 条扫描四个提交 diff：仅命中 `safeToken` 等代码标识符，无真实凭据 / 本机路径 / token。main 与 tag 快进推送，远端 HEAD = `00a5ccf`
+- [x] GitHub Release：`v1.2.2 · 演示数据角标 + 首次启动欢迎气泡`（id `441532165`，非 draft / 非 prerelease，正文取自 CHANGELOG 1.2.2 + 三资产 SHA256 + 适用系统 / 升级 / Defender + 隐私边界），`https://github.com/jingyuan9527/KeyPulse/releases/tag/v1.2.2` 为当前 latest。三资产服务端 digest 与本地逐一一致（exe `065a3e68…658a` / zip `b6003899…023e` / SUMS `44e48862…eb8`），token 经 `git credential fill` 内存传递、未打印未落盘，临时凭据文件已删除
+- [ ] 人工实机自测清单第 12 / 13 步（欢迎气泡、GUI `--dir`）仍待用户在交互桌面完成；录制前 reset 流程（退进程 → 清目录 → selftest → 启动）可直接使用 `dist/KeyPulse-1.2.2/` 或 Release 资产
 
 ## macOS 移植（后续新能力，需 `1.x.0`）
 
