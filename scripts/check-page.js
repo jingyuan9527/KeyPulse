@@ -95,6 +95,24 @@ if (D.weeks[D.weeks.length - 1].part) {
   if (!bad) console.log('PASS 未完成周：同期口径 + 未到日期标记');
 }
 
+// 演示角标：--selftest / 示例报告必须带角标，且位于视图区（模板静态层）
+// 之外，实时局部更新才不会移除它；真实数据报告不得注入。本脚本对两种
+// 报告都能跑，按是否注入分别断言。
+const badgeIdx = html.indexOf('id="kpdemo"');
+if (badgeIdx >= 0) {
+  const problems = [];
+  if (!html.includes('演示数据 · 由 --selftest 生成')) problems.push('角标缺少演示文案');
+  const viewIdx = html.indexOf('<main id="view">');
+  if (viewIdx < 0 || badgeIdx > viewIdx) problems.push('角标不在视图区之外，实时更新会移除它');
+  if (html.includes('__KP_DEMO__')) problems.push('演示占位符未被替换');
+  if (problems.length) { console.error('FAIL 演示角标: ' + problems.join(', ')); bad++; }
+  else console.log('PASS 演示角标');
+} else if (html.includes('演示数据')) {
+  console.error('FAIL 真实报告不应出现演示文案'); bad++;
+} else {
+  console.log('PASS 演示角标：真实报告未注入');
+}
+
 // 健康提示分支：用一份带 health 的数据集重跑页面脚本，验证采集中断
 // 提示条会被点亮、文案经过 esc。自检数据本身不含 health.log，
 // 因此顺便验证无事件时提示条保持隐藏。

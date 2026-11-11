@@ -15,6 +15,7 @@ const tokenPlaceholder = "__KP_TOKEN__"
 const refreshPlaceholder = "__KP_REFRESH__"
 const netNotePlaceholder = "__KP_NET_NOTE__"
 const footerNotePlaceholder = "__KP_FOOTER_NOTE__"
+const demoPlaceholder = "__KP_DEMO__"
 
 const pageTemplate = `<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
@@ -125,11 +126,13 @@ table.tbl{width:100%;border-collapse:collapse;font-size:13px}
 .health{display:none;border:1px solid #f0d9b5;background:#fffbf2;color:#8a5a12;border-radius:10px;padding:10px 14px;font-size:12.5px;line-height:1.7;margin-bottom:14px}
 .health.on{display:block}
 .health b{font-weight:600;margin-right:6px}
+.demobadge{position:fixed;top:12px;right:14px;z-index:9;background:var(--soft);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12px;color:var(--muted);pointer-events:none}
 footer{color:var(--muted);font-size:12px;margin-top:18px;line-height:1.9}
 code{background:var(--soft);padding:1px 5px;border-radius:4px;font-size:11px}
 @media(max-width:780px){.cards{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}}
 </style></head><body><div class="wrap">
 <header><h1>输入统计</h1><span class="sub" id="meta"></span></header>
+__KP_DEMO__
 <nav>
 <button id="tab-day">单日</button>
 <button id="tab-week">周报 · 对比</button>

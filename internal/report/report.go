@@ -94,9 +94,13 @@ func safeToken(s string) string {
 	return b.String()
 }
 
+// demoBadgeHTML 是 --selftest / 发布包示例报告独占的角标：观众必须一眼
+// 分清演示数据与真实采集，否则与「隐私诚实」的产品叙事冲突。
+const demoBadgeHTML = `<div class="demobadge" id="kpdemo">演示数据 · 由 --selftest 生成</div>`
+
 // renderDocument 按形态替换占位符，返回完整 HTML，不写文件。
 // 先替换小占位符再替换大 JSON：避免数据内容里若出现 __KP_*__ 字面量被二次替换。
-func renderDocument(dir string, days []store.DayData, live, server bool, token string) (string, error) {
+func renderDocument(dir string, days []store.DayData, live, server, demo bool, token string) (string, error) {
 	if len(days) == 0 {
 		return "", fmt.Errorf("没有可统计的数据")
 	}
@@ -119,6 +123,12 @@ func renderDocument(dir string, days []store.DayData, live, server bool, token s
 		// 改由页面 JS 只在周报 / 总览时定时重载。
 		refresh, footer = "", liveFooter
 	}
+	// 角标是模板静态层元素（不在 <main id="view"> 内）：实时模式的 applyLive
+	// 只替换视图区 innerHTML，60 秒整页刷新重读的也是同一份文件，角标不会消失。
+	demoHTML := ""
+	if demo {
+		demoHTML = demoBadgeHTML
+	}
 	doc := pageTemplate
 	for _, kv := range [][2]string{
 		{refreshPlaceholder, refresh},
@@ -127,6 +137,7 @@ func renderDocument(dir string, days []store.DayData, live, server bool, token s
 		{livePlaceholder, liveFlag},
 		{serverPlaceholder, serverFlag},
 		{tokenPlaceholder, safeToken(token)},
+		{demoPlaceholder, demoHTML},
 	} {
 		doc = strings.Replace(doc, kv[0], kv[1], 1)
 	}
@@ -136,7 +147,26 @@ func renderDocument(dir string, days []store.DayData, live, server bool, token s
 // RenderServer 生成本地看板页：只返回字符串、不写任何文件。
 // 页面用 SSE 收数据，页面内可一键开关实时推送。
 func RenderServer(dir string, days []store.DayData, token string) (string, error) {
-	return renderDocument(dir, days, false, true, token)
+	return renderDocument(dir, days, false, true, false, token)
+}
+
+// RenderDemo 生成带「演示数据」角标的 report.html（demo=true 路径），
+// 仅供 --selftest 与发布包示例报告使用；真实数据路径必须走
+// Render / RenderWithLive，页面上不会出现任何演示标记。
+func RenderDemo(dir string, days []store.DayData) (string, error) {
+	doc, err := renderDocument(dir, days, false, false, true, "")
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "report.html")
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path, nil
+	}
+	return abs, nil
 }
 
 // RenderWithLive 生成 report.html 并返回绝对路径。
@@ -145,7 +175,7 @@ func RenderServer(dir string, days []store.DayData, token string) (string, error
 // 先在内存里拼好整份文档，再一次 WriteFile：页面会定时刷新、后台会重写
 // 同一文件，必须把"已截断但尚未写完"的窗口压缩到一次系统调用。
 func RenderWithLive(dir string, days []store.DayData, live bool) (string, error) {
-	doc, err := renderDocument(dir, days, live, false, "")
+	doc, err := renderDocument(dir, days, live, false, false, "")
 	if err != nil {
 		return "", err
 	}

@@ -161,6 +161,48 @@ func TestDatasetEmpty(t *testing.T) {
 	}
 }
 
+// 演示角标：selftest / 示例报告必须带角标，真实数据路径绝不能带；
+// 角标必须位于 <main id="view"> 之前（模板静态层），实时模式的
+// 局部更新只替换视图区 innerHTML，才不会把它抹掉。
+func TestDemoBadge(t *testing.T) {
+	dir := t.TempDir()
+	raw := []store.DayData{mkDay("20261106", 100, 10)}
+
+	p, err := RenderDemo(dir, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demo := string(mustRead(t, p))
+	if !strings.Contains(demo, `id="kpdemo"`) || !strings.Contains(demo, "演示数据 · 由 --selftest 生成") {
+		t.Error("演示报告缺少角标或文案")
+	}
+	if strings.Contains(demo, demoPlaceholder) {
+		t.Error("演示占位符未被替换")
+	}
+	vi := strings.Index(demo, `<main id="view">`)
+	bi := strings.Index(demo, `id="kpdemo"`)
+	if vi < 0 || bi < 0 || bi > vi {
+		t.Error("角标必须渲染在视图区之前的模板静态层")
+	}
+
+	p2, err := Render(dir, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	real := string(mustRead(t, p2))
+	if strings.Contains(real, "kpdemo") || strings.Contains(real, "演示数据") {
+		t.Error("真实数据路径不应注入演示角标")
+	}
+
+	srv, err := RenderServer(dir, raw, "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(srv, "kpdemo") {
+		t.Error("看板页不应注入演示角标")
+	}
+}
+
 // 钩子自动恢复会写 health.log，报告必须如实标注数据缺口；
 // 同时要忽略格式非法/被外部篡改的行，且不能让内容逃逸出 <script>。
 func TestHealthLogInjection(t *testing.T) {

@@ -176,6 +176,19 @@ func writeReport(dir string) (string, error) {
 	return p, err
 }
 
+// writeDemoReport 与 writeReport 同源，但走 report.RenderDemo 注入
+// 「演示数据」角标：selftest 产物必须与真实报告可分辨。不参与保活窗口。
+func writeDemoReport(dir string) (string, error) {
+	days, err := store.ListDays(dir, report.ReportMaxDays)
+	if err != nil {
+		return "", err
+	}
+	if len(days) == 0 {
+		return "", fmt.Errorf("暂无统计数据")
+	}
+	return report.RenderDemo(dir, days)
+}
+
 // makeReport: open=true 表示用户主动打开，会续保活窗口并弹出浏览器。
 func makeReport(dir string, open bool) {
 	p, err := writeReport(dir)
@@ -293,7 +306,12 @@ func runSelfTest(dir string) {
 			return
 		}
 	}
-	makeReport(d, false)
+	p, err := writeDemoReport(d)
+	if err != nil {
+		fmt.Println("生成报告失败:", err)
+		return
+	}
+	fmt.Println("报告已生成:", p)
 	fmt.Println("自检完成。模拟数据目录:", d)
 	fmt.Println("用浏览器打开该目录下的 report.html 可查看单日 / 周报对比 / 总览三个视图。")
 }
