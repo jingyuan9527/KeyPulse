@@ -176,6 +176,18 @@
 - [ ] 按 SOP 第 7 步，人工实机自测清单（`docs/release.md` 第 4 节，含新增第 8 步单实例弹框）仍待用户在交互桌面完成；用户明确下令发版即视为接受
 - [x] 已发布的 v1.2.0 tag / Release / 资产按「已发布不覆盖」保持原样；`VERSION` 与 CHANGELOG 历史条目不回改
 
+## v1.2.2 录制前赶工三项（2026-11-11，已打包未提交）
+
+需求单三项合并 PATCH `1.2.2`；不改默认用户路径、不新增依赖、不加采集 / 联网行为。
+
+- [x] REQ-01 演示角标：`page.go` 新增 `__KP_DEMO__` 占位符与 `.demobadge` 样式（fixed 右上角、pointer-events:none），`report.go` `renderDocument` 加 `demo` 参数并新增 `RenderDemo`（真实路径 `Render` / `RenderWithLive` / `RenderServer` 均不注入）；selftest 改走 `writeDemoReport` → `RenderDemo`。角标在模板静态层（`<main id="view">` 之前），实时局部更新与 60 秒刷新都不会移除。`example-report.html` 由 selftest 生成自动带角标。单测 `TestDemoBadge`（demo 有 / 真实与看板无 / 位置在视图区外）+ `check-page.js` 条件断言（demo 报告验角标与位置，真实报告验零注入），两种报告各 11 项 PASS
+- [x] REQ-02 确认关闭：GUI 与 CLI 同一份源码，`--dir` / `--keep-days` 经 `flag` 解析本就一致（GUI 构建冒烟 `--version` 通过）；页脚早已显示数据目录。落地内容改为文档：README 命令行参数节注明 GUI 同样支持 + 单实例按登录会话全局、演示实例与真实实例不能同时运行
+- [x] REQ-03 首次启动欢迎气泡：`main.go` 新增 `welcomeOnce`（托盘初始化成功后调用，数据目录存在 `.welcomed` 则不弹、否则弹气泡并写标记；失败路径在调用前已 return）；气泡文案「KeyPulse 已开始统计 · 双击托盘图标查看报告」并携带数据目录，无敏感词；`trayNotify` 间接层供单测替换。单测 `TestWelcomeOnce`（首次弹 + 写标记 / 二次不弹 / 删标记再弹 / 文案与目录断言）
+- [x] 文档同步：README（快速开始、演示角标、落盘清单加 `.welcomed`、命令行参数）、CHANGELOG `[1.2.2]` 条目 + compare 链接、`docs/release.md`（11 项页面回归、示例报告角标说明、自测清单新增第 12 / 13 步欢迎气泡与 GUI `--dir` 验收）
+- [x] `VERSION` → 1.2.2；`bash scripts/check-version.sh`（Git Bash）通过；`go test -buildvcs=false -count=1 ./...` 8 包全 PASS；`package-release.sh` 全绿：11 项页面回归 PASS、10 项 `SHA256SUMS.txt` OK、PE subsystem 2/3、`KeyPulse 1.2.2 (build 2026-11-11T09:28:29Z)`，单 exe 6,320,640 B
+- [x] 产物：`dist/KeyPulse-1.2.2/`（10 项清单）、`dist/KeyPulse-1.2.2-win-x64.zip`（5,351,335 B）、`dist/KeyPulse-1.2.2-win-x64.exe`；根目录 `keypulse.exe` / `keypulse-cli.exe` / `keypulse-live-preview.exe` / `preview.html` 已同步为 1.2.2 正式构建，根目录 exe SHA256 = `065a3e68…658a` 与直下资产同字节。上传资产 SHA256：exe `065a3e68…658a`、zip `b6003899…023e`、SUMS `44e48862…eb8`
+- [ ] 未提交 / 未打 tag / 未发 Release（按惯例待用户确认后按 13 步 SOP 执行）；人工实机自测清单第 12 / 13 步（欢迎气泡、GUI `--dir`）待用户在交互桌面完成
+
 ## macOS 移植（后续新能力，需 `1.x.0`）
 
 - [ ] 前置条件：需要 Mac 或 GitHub Actions macOS runner；签名与公证需要 Apple Developer ID

@@ -8,7 +8,7 @@
 |---|---|
 | `keypulse.exe` | 日常使用。无控制台，托盘常驻，全局统计输入次数 |
 | `keypulse-cli.exe` | 调试与自检。保留控制台，支持 `--version` / `--selftest` / `--report-only` |
-| `example-report.html` | 35 天模拟数据生成的离线报告，不启动程序即可预览三个视图 |
+| `example-report.html` | 35 天模拟数据生成的离线报告，不启动程序即可预览三个视图；带「演示数据」角标 |
 | `README.md` / `CHANGELOG.md` / `LICENSE` | 使用说明、逐版本变更、许可证 |
 | `docs/metrics.md` / `docs/versioning.md` / `docs/release.md` | 统计口径与数据格式、版本规则、本文件 |
 | `SHA256SUMS.txt` | 包内全部文件的校验和（不含自身） |
@@ -17,7 +17,7 @@
 
 **免安装、单文件、零外部依赖**：不需要 .NET / VC++ 运行库 / WebView2 / SQLite，不写注册表启动项、不装驱动、不注入进程。数据只写在 `%LOCALAPPDATA%\KeyPulse\`。
 
-示例报告由 `--selftest` 生成，页脚的「数据目录」是自检临时路径，仅用于演示界面，不是真实采集数据。
+示例报告由 `--selftest` 生成，页脚的「数据目录」是自检临时路径，仅用于演示界面，不是真实采集数据；右上角固定显示「演示数据 · 由 --selftest 生成」角标，真实采集数据生成的报告没有该标记。
 
 运行环境：Windows 10 / 11，x64。构建：Go 1.25.0，`CGO_ENABLED=0`。
 
@@ -38,7 +38,7 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 
 - [ ] `bash scripts/check-version.sh` 通过（VERSION 格式、CHANGELOG 条目、tag 未重复、文档无写死版本号）
 - [ ] `go test -buildvcs=false -count=1 ./...` 全 PASS
-- [ ] `node scripts/check-page.js .tmp/_selftest/report.html` 单日 / 周报 / 总览等 10 项全 PASS
+- [ ] `node scripts/check-page.js .tmp/_selftest/report.html` 单日 / 周报 / 总览等 11 项全 PASS（含「演示角标」）
 - [ ] 两个 exe 的 `--version` 一致，且与 `VERSION` 文件一致
 - [ ] `keypulse.exe` PE subsystem = 2（无控制台），`keypulse-cli.exe` = 3（控制台）
 - [ ] `SHA256SUMS.txt` 与实际文件一致。Git Bash 下 `sha256sum -c SHA256SUMS.txt`；PowerShell 下 `Get-FileHash keypulse.exe -Algorithm SHA256` 逐项比对
@@ -53,7 +53,7 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 按顺序做一遍，约 5 分钟：
 
 1. `keypulse-cli.exe --version` → 应输出 `KeyPulse <版本> (build ...)`，版本号与 `VERSION` 一致。
-2. `keypulse-cli.exe --selftest` → 生成 35 天模拟数据与报告，**不挂钩子、不采集真实输入**；浏览器打开可见单日 / 周报 / 总览三个视图。
+2. `keypulse-cli.exe --selftest` → 生成 35 天模拟数据与报告，**不挂钩子、不采集真实输入**；浏览器打开可见单日 / 周报 / 总览三个视图，且右上角都有「演示数据 · 由 --selftest 生成」角标（开启实时刷新后角标也不消失）。
 3. 双击 `keypulse.exe` → 右下角出现蓝底键帽 + 绿点图标，悬停提示 `KeyPulse v<版本> · 采集中`。
 4. 敲约 20 下键盘、点 5 下鼠标 → 双击托盘打开报告，按键与点击数对得上。
 5. 右键 → **暂停采集** → 图标转灰 + 琥珀点、提示变「已暂停」；再点恢复。
@@ -63,6 +63,8 @@ bash scripts/package-release.sh      # 完整发布包（测试 + 构建 + 文�
 9. 右键 → **退出** → 进程消失；`%LOCALAPPDATA%\KeyPulse\` 里的 `.bin` 仍在。
 10. 再次启动 → 当天数字接着累加，不清零。
 11. 正常操作（含移动鼠标、锁屏解锁、切换窗口）后，目录下不应新增 `health.log`；只有新增 `reason=confirmed_silence` 才代表确认过采集中断，报告顶部会标注缺口。旧版遗留的 `reason=input_without_callback` 行保留但不再触发提示。
+12. **首次启动欢迎气泡**：干净目录（或删除数据目录里的 `.welcomed` 标记后）双击 `keypulse.exe` → 初始化成功后立即出现气泡「KeyPulse 已开始统计 · 双击托盘图标查看报告」，文案携带数据目录；同目录第二次启动不再弹；再次删除标记后启动会再弹。数据目录打不开等失败场景只出现错误提示框，不出现欢迎气泡。
+13. **GUI 版 `--dir`**：先用 `keypulse-cli.exe --dir D:\demo\kp --selftest` 灌演示数据，再 `keypulse.exe --dir D:\demo\kp` 启动 → `.bin` 与 `report.html` 都落在指定目录、默认目录零写入；双击托盘打开的报告页脚显示 `D:\demo\kp`，与 CLI 对同一目录读写互通。注意单实例按登录会话全局生效：演示实例与真实实例不能同时运行。指定目录不可写时走现有可见错误提示，不静默失败。
 
 **实时模式额外验收**（仅当该版本包含此开关）：
 
