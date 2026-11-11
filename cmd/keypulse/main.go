@@ -60,6 +60,8 @@ var (
 			msgBoxFlags)
 	}
 	printLine = func(s string) { fmt.Println(s) }
+	// trayNotify 供单测替换：测试环境没有托盘句柄，真调会静默 no-op。
+	trayNotify = tray.Notify
 )
 
 // outputVisible 判断 stdout 能否真正被看见。不能只靠 GetConsoleWindow：
@@ -141,6 +143,21 @@ func defaultDir() string {
 		base = "."
 	}
 	return filepath.Join(base, "KeyPulse")
+}
+
+// welcomeOnce 只在数据目录还没有 .welcomed 标记时弹一次欢迎气泡并写标记。
+// 按目录判定：换 --dir 指向的演示目录会再次触发，正好服务录制；
+// 所有初始化失败路径都在调用之前 return，失败时绝不会先欢迎后报错。
+// 标记写失败只影响下次是否重复弹气泡，不值得为它阻塞启动流程。
+func welcomeOnce(dir string) {
+	mark := filepath.Join(dir, ".welcomed")
+	if _, err := os.Stat(mark); err == nil || !os.IsNotExist(err) {
+		return
+	}
+	trayNotify("KeyPulse 已开始统计", "双击托盘图标查看报告。数据目录："+dir)
+	if f, err := os.Create(mark); err == nil {
+		f.Close()
+	}
 }
 
 func acquireSingleton() bool {
@@ -442,6 +459,10 @@ func main() {
 		st.Close()
 		return
 	}
+
+	// 钩子与托盘都已就绪，这就是「首次成功启动」的时刻；气泡里带上
+	// 数据目录，多目录 / 演示场景录屏时可当场自查写入位置。
+	welcomeOnce(*dir)
 
 	stop := make(chan struct{})
 	var wg sync.WaitGroup

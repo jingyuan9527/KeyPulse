@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -105,5 +107,45 @@ func TestNotifyWindowsProcsResolvable(t *testing.T) {
 		if err := p.proc.Find(); err != nil {
 			t.Errorf("%s 无法解析: %v", p.name, err)
 		}
+	}
+}
+
+// 欢迎气泡按数据目录判定「首次」：换 --dir 的演示目录必须能再次触发，
+// 文案不得出现键盘 / 监控等敏感词（与隐私叙事一致）。
+func TestWelcomeOnce(t *testing.T) {
+	dir := t.TempDir()
+	var calls [][]string
+	orig := trayNotify
+	t.Cleanup(func() { trayNotify = orig })
+	trayNotify = func(title, text string) { calls = append(calls, []string{title, text}) }
+
+	welcomeOnce(dir)
+	if len(calls) != 1 {
+		t.Fatalf("首次启动应弹一次气泡，实际 %d 次", len(calls))
+	}
+	if calls[0][0] != "KeyPulse 已开始统计" || !strings.Contains(calls[0][1], "双击托盘图标查看报告") {
+		t.Errorf("欢迎气泡文案错误: %q / %q", calls[0][0], calls[0][1])
+	}
+	for _, s := range []string{"键盘", "监控", "记录你"} {
+		if strings.Contains(calls[0][0]+calls[0][1], s) {
+			t.Errorf("欢迎气泡出现敏感词 %q: %q / %q", s, calls[0][0], calls[0][1])
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".welcomed")); err != nil {
+		t.Fatalf("标记文件未写入: %v", err)
+	}
+
+	welcomeOnce(dir)
+	if len(calls) != 1 {
+		t.Fatalf("同目录第二次启动不应再弹，实际 %d 次", len(calls))
+	}
+
+	os.Remove(filepath.Join(dir, ".welcomed"))
+	welcomeOnce(dir)
+	if len(calls) != 2 {
+		t.Fatalf("删除标记后应再次弹出，实际 %d 次", len(calls))
+	}
+	if !strings.Contains(calls[1][1], dir) {
+		t.Errorf("气泡未携带数据目录: %q", calls[1][1])
 	}
 }
