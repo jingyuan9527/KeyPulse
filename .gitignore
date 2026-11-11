@@ -19,6 +19,7 @@ export.csv
 
 # 私有工作区与编辑器
 .workbuddy/
+AGENT_NOTES.md
 .vscode/
 .idea/
 Thumbs.db
